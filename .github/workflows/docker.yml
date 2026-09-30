@@ -3,7 +3,6 @@ name: docker
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 jobs:
@@ -11,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -20,14 +20,18 @@ jobs:
 
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 构建并推送（latest）
+      - name: 构建并推送 GHCR
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          tags: 4nest/hongguo-pwa:latest
+          push: true
+          build-args: |
+            NPM_REGISTRY=https://registry.npmjs.org
+          tags: ghcr.io/4nest/hongguo-pwa:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
