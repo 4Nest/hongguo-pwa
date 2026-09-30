@@ -13,9 +13,8 @@ services:
       - capy-data:/data
       # 如需自定义配置：把 config.toml 放到 ./capy-config/
       # - ./capy-config:/config
-
   hongguo:
-    image: 4nest/hongguo-pwa:latest
+    image: ghcr.io/4nest/hongguo-pwa:latest
     build: .
     container_name: hongguo
     restart: unless-stopped

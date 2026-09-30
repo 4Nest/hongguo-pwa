@@ -43,7 +43,7 @@ docker compose up -d   # 先构建：docker compose build；capy 的 config.toml
 docker run -d --name hongguo -p 8789:8789 \
   -e UPSTREAM_URL=http://192.168.2.110:8788 \
   -v hongguo-data:/app/data \
-  yourname/hongguo-pwa:latest
+  ghcr.io/4nest/hongguo-pwa:latest
 ```
 
 `/app/data` 卷保存 SQLite、JWT 密钥与 admin 初始凭证（`docker exec hongguo cat /app/data/admin-credentials.txt`）。
