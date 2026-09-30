@@ -40,6 +40,7 @@ interface AdminUser {
   favorite_count: number;
   history_count: number;
   huangguo_allowed: number;
+  expires_at: number | null;
 }
 
 function InvitesTab() {
@@ -153,7 +154,9 @@ function UsersTab() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [pendingDelete, setPendingDelete] = useState<AdminUser | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [newUser, setNewUser] = useState({ username: "", password: "" });
+  const [newUser, setNewUser] = useState({ username: "", password: "", expiresInDays: "" });
+  const [expiresTarget, setExpiresTarget] = useState<AdminUser | null>(null);
+  const [expiresDays, setExpiresDays] = useState("");
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
   const [resetPassword, setResetPassword] = useState("");
 
@@ -197,13 +200,36 @@ function UsersTab() {
   const addUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api("/api/admin/users", { method: "POST", body: newUser });
+      await api("/api/admin/users", {
+        method: "POST",
+        body: {
+          username: newUser.username,
+          password: newUser.password,
+          expiresInDays: Number(newUser.expiresInDays) > 0 ? Number(newUser.expiresInDays) : undefined,
+        },
+      });
       toast.success(`已创建用户 ${newUser.username}`);
       setAddOpen(false);
-      setNewUser({ username: "", password: "" });
+      setNewUser({ username: "", password: "", expiresInDays: "" });
       void load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "创建失败");
+    }
+  };
+
+  const saveExpires = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expiresTarget) return;
+    try {
+      await api(`/api/admin/users/${expiresTarget.id}/expires`, {
+        method: "PUT",
+        body: { days: Number(expiresDays) || 0 },
+      });
+      toast.success(`已更新 ${expiresTarget.username} 的有效期`);
+      setExpiresTarget(null);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "操作失败");
     }
   };
 
@@ -237,6 +263,7 @@ function UsersTab() {
             <TableHead>收藏数</TableHead>
             <TableHead>历史数</TableHead>
             <TableHead>黄果权限</TableHead>
+            <TableHead>有效期</TableHead>
             <TableHead className="w-20">操作</TableHead>
           </TableRow>
         </TableHeader>
@@ -258,6 +285,24 @@ function UsersTab() {
                 >
                   {u.huangguo_allowed ? "允许" : "禁止"}
                 </Button>
+              </TableCell>
+              <TableCell>
+                <button
+                  className="cursor-pointer text-left"
+                  title="点击设置有效期"
+                  onClick={() => {
+                    setExpiresTarget(u);
+                    setExpiresDays("");
+                  }}
+                >
+                  {u.expires_at === null ? (
+                    <span className="text-muted-foreground">永久</span>
+                  ) : u.expires_at < Date.now() ? (
+                    <span className="text-red-500">已过期</span>
+                  ) : (
+                    new Date(u.expires_at).toLocaleDateString()
+                  )}
+                </button>
               </TableCell>
               <TableCell>
                 <div className="flex gap-1">
@@ -328,8 +373,47 @@ function UsersTab() {
                 required
               />
             </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="add-expires">有效期（天，留空为永久）</Label>
+              <Input
+                id="add-expires"
+                type="number"
+                min={1}
+                value={newUser.expiresInDays}
+                onChange={(e) => setNewUser({ ...newUser, expiresInDays: e.target.value })}
+                placeholder="留空 = 永久"
+              />
+            </div>
             <DialogFooter>
               <Button type="submit">创建</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={expiresTarget !== null}
+        onOpenChange={(open) => !open && setExpiresTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>设置有效期</DialogTitle>
+            <DialogDescription>
+              用户「{expiresTarget?.username}」：输入天数（自现在起），0 或留空为永久
+              {expiresTarget?.expires_at
+                ? `；当前到期：${new Date(expiresTarget.expires_at).toLocaleString()}`
+                : "；当前：永久"}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveExpires} className="flex flex-col gap-4">
+            <Input
+              type="number"
+              min={0}
+              value={expiresDays}
+              onChange={(e) => setExpiresDays(e.target.value)}
+              placeholder="天数，0 = 永久"
+            />
+            <DialogFooter>
+              <Button type="submit">保存</Button>
             </DialogFooter>
           </form>
         </DialogContent>

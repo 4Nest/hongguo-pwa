@@ -26,7 +26,7 @@ authRouter.post("/register", (req, res) => {
   const now = Date.now();
   const tx = db.transaction(() => {
     const info = db
-      .prepare("INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, 'user', ?)")
+      .prepare("INSERT INTO users (username, password_hash, role, created_at, huangguo_allowed) VALUES (?, ?, 'user', ?, 0)")
       .run(name, hash, now);
     const uid = Number(info.lastInsertRowid);
     db.prepare("UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?").run(uid, now, invite.code);
@@ -42,14 +42,15 @@ authRouter.post("/login", (req, res) => {
   if (typeof username !== "string" || typeof password !== "string")
     return res.status(400).json({ error: "参数不完整" });
   const user = getUserByName.get(username.trim()) as
-    | { id: number; username: string; password_hash: string; role: string }
+    | { id: number; username: string; password_hash: string; role: string; expires_at: number | null }
     | undefined;
   if (!user || !bcrypt.compareSync(password, user.password_hash))
     return res.status(401).json({ error: "用户名或密码错误" });
+  if (user.expires_at !== null && user.expires_at < Date.now())
+    return res.status(403).json({ error: "账号已过期，请联系管理员" });
   signToken(req, res, user.id, user.role);
   res.json({ id: user.id, username: user.username, role: user.role });
 });
-
 authRouter.post("/logout", (req, res) => {
   clearToken(req, res);
   res.json({ ok: true });
@@ -57,11 +58,16 @@ authRouter.post("/logout", (req, res) => {
 
 authRouter.get("/me", requireAuth, (req: AuthedRequest, res) => {
   const user = db
-    .prepare("SELECT id, username, role, source FROM users WHERE id = ?")
+    .prepare("SELECT id, username, role, source, expires_at FROM users WHERE id = ?")
     .get(req.user!.uid) as
-    | { id: number; username: string; role: string; source: string }
+    | { id: number; username: string; role: string; source: string; expires_at: number | null }
     | undefined;
   if (!user) return res.status(401).json({ error: "用户不存在" });
+  // 账号过期：清 cookie 并踢出
+  if (user.expires_at !== null && user.expires_at < Date.now()) {
+    clearToken(req, res);
+    return res.status(401).json({ error: "账号已过期" });
+  }
   // 黄果被关闭或该用户被单独禁用时，已切到黄果的用户回退红果
   const allowed = userHuangguoAllowed(user.id);
   if (user.source === "huangguo" && !allowed) {

@@ -89,7 +89,7 @@ adminRouter.delete("/invites/:code", (req, res) => {
 adminRouter.get("/users", (_req, res) => {
   const rows = db
     .prepare(
-      `SELECT u.id, u.username, u.role, u.created_at, u.huangguo_allowed,
+      `SELECT u.id, u.username, u.role, u.created_at, u.huangguo_allowed, u.expires_at,
         (SELECT COUNT(*) FROM favorites f WHERE f.user_id = u.id) AS favorite_count,
         (SELECT COUNT(*) FROM history h WHERE h.user_id = u.id) AS history_count
        FROM users u ORDER BY u.created_at ASC`,
@@ -107,6 +107,19 @@ adminRouter.put("/users/:id/huangguo", (req, res) => {
   if (!target) return res.status(404).json({ error: "用户不存在" });
   db.prepare("UPDATE users SET huangguo_allowed = ? WHERE id = ?").run(allowed ? 1 : 0, id);
   res.json({ ok: true, allowed });
+});
+
+// 设置账号有效期：days 天数（0/负数=永久）
+adminRouter.put("/users/:id/expires", (req, res) => {
+  const id = Number(req.params.id);
+  const { days } = req.body ?? {};
+  if (typeof days !== "number" || !Number.isFinite(days))
+    return res.status(400).json({ error: "参数不完整" });
+  const target = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
+  if (!target) return res.status(404).json({ error: "用户不存在" });
+  const expiresAt = days > 0 ? Date.now() + Math.floor(days * 86400 * 1000) : null;
+  db.prepare("UPDATE users SET expires_at = ? WHERE id = ?").run(expiresAt, id);
+  res.json({ ok: true, expiresAt });
 });
 
 adminRouter.delete("/users/:id", (req: AuthedRequest, res) => {
@@ -128,7 +141,7 @@ adminRouter.delete("/users/:id", (req: AuthedRequest, res) => {
 });
 
 adminRouter.post("/users", (req, res) => {
-  const { username, password, role } = req.body ?? {};
+  const { username, password, role, expiresInDays } = req.body ?? {};
   if (typeof username !== "string" || typeof password !== "string")
     return res.status(400).json({ error: "参数不完整" });
   const name = username.trim();
@@ -138,9 +151,16 @@ adminRouter.post("/users", (req, res) => {
     return res.status(400).json({ error: "非法角色" });
   const exists = db.prepare("SELECT 1 FROM users WHERE username = ?").get(name);
   if (exists) return res.status(400).json({ error: "用户名已被占用" });
+  const expiresAt =
+    typeof expiresInDays === "number" && expiresInDays > 0
+      ? Date.now() + Math.floor(expiresInDays * 86400 * 1000)
+      : null;
+  // 新建用户默认禁止黄果，管理员在用户列表单独开启
   const info = db
-    .prepare("INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)")
-    .run(name, bcrypt.hashSync(password, 10), role === "admin" ? "admin" : "user", Date.now());
+    .prepare(
+      "INSERT INTO users (username, password_hash, role, created_at, huangguo_allowed, expires_at) VALUES (?, ?, ?, ?, 0, ?)",
+    )
+    .run(name, bcrypt.hashSync(password, 10), role === "admin" ? "admin" : "user", Date.now(), expiresAt);
   res.json({ id: Number(info.lastInsertRowid), username: name });
 });
 
