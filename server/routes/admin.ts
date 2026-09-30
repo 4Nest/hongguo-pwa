@@ -52,12 +52,19 @@ adminRouter.post("/invites", (req: AuthedRequest, res) => {
   const count = Number(req.body?.count ?? 1);
   if (!Number.isInteger(count) || count < 1 || count > 50)
     return res.status(400).json({ error: "数量须为 1-50 的整数" });
+  const { expiresInDays } = req.body ?? {};
+  const expiresAt =
+    typeof expiresInDays === "number" && expiresInDays > 0
+      ? Date.now() + Math.floor(expiresInDays * 86400 * 1000)
+      : null;
   const codes: string[] = [];
-  const insert = db.prepare("INSERT INTO invites (code, created_by, created_at) VALUES (?, ?, ?)");
+  const insert = db.prepare(
+    "INSERT INTO invites (code, created_by, created_at, expires_at) VALUES (?, ?, ?, ?)",
+  );
   const tx = db.transaction(() => {
     for (let i = 0; i < count; i++) {
       const code = genCode();
-      insert.run(code, req.user!.uid, Date.now());
+      insert.run(code, req.user!.uid, Date.now(), expiresAt);
       codes.push(code);
     }
   });
@@ -68,7 +75,7 @@ adminRouter.post("/invites", (req: AuthedRequest, res) => {
 adminRouter.get("/invites", (_req, res) => {
   const rows = db
     .prepare(
-      `SELECT i.code, i.created_at, i.used_at, u.username AS used_by_username
+      `SELECT i.code, i.created_at, i.used_at, i.expires_at, u.username AS used_by_username
        FROM invites i LEFT JOIN users u ON u.id = i.used_by
        ORDER BY i.created_at DESC`,
     )
@@ -76,12 +83,10 @@ adminRouter.get("/invites", (_req, res) => {
   res.json({ invites: rows });
 });
 
+// 删除邀请码：已使用的也可删（只影响记录，不影响已注册用户）
 adminRouter.delete("/invites/:code", (req, res) => {
-  const invite = db.prepare("SELECT used_by FROM invites WHERE code = ?").get(req.params.code) as
-    | { used_by: number | null }
-    | undefined;
+  const invite = db.prepare("SELECT 1 FROM invites WHERE code = ?").get(req.params.code);
   if (!invite) return res.status(404).json({ error: "邀请码不存在" });
-  if (invite.used_by !== null) return res.status(400).json({ error: "已使用的邀请码不能删除" });
   db.prepare("DELETE FROM invites WHERE code = ?").run(req.params.code);
   res.json({ ok: true });
 });

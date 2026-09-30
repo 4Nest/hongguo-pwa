@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberStepper } from "@/components/NumberStepper";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -30,6 +31,7 @@ interface Invite {
   created_at: number;
   used_at: number | null;
   used_by_username: string | null;
+  expires_at: number | null;
 }
 
 interface AdminUser {
@@ -45,8 +47,8 @@ interface AdminUser {
 
 function InvitesTab() {
   const [invites, setInvites] = useState<Invite[]>([]);
-  const [count, setCount] = useState(1);
-  const [newCodes, setNewCodes] = useState<string[]>([]);
+  const [count, setCount] = useState("1");
+  const [expiresDays, setExpiresDays] = useState("");
 
   const load = useCallback(
     () =>
@@ -64,9 +66,11 @@ function InvitesTab() {
     try {
       const d = await api<{ codes: string[] }>("/api/admin/invites", {
         method: "POST",
-        body: { count },
+        body: {
+          count: Number(count) || 1,
+          expiresInDays: Number(expiresDays) > 0 ? Number(expiresDays) : undefined,
+        },
       });
-      setNewCodes(d.codes);
       toast.success(`已生成 ${d.codes.length} 个邀请码`);
       void load();
     } catch (err) {
@@ -90,32 +94,20 @@ function InvitesTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <Input
-          type="number"
-          min={1}
-          max={50}
-          value={count}
-          onChange={(e) => setCount(Number(e.target.value) || 1)}
-          className="w-24"
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground">数量</span>
+        <NumberStepper value={count} onChange={setCount} min={1} max={50} />
+        <span className="text-sm text-muted-foreground">有效期（天，留空永久）</span>
+        <NumberStepper value={expiresDays} onChange={setExpiresDays} min={0} placeholder="永久" />
         <Button onClick={() => void generate()}>生成邀请码</Button>
       </div>
-      {newCodes.length > 0 && (
-        <div className="flex flex-wrap gap-2 rounded-md border border-green-800 bg-green-950/40 p-3">
-          {newCodes.map((c) => (
-            <Badge key={c} variant="secondary" className="cursor-pointer text-sm" onClick={() => copy(c)}>
-              {c} <Copy className="ml-1 h-3 w-3" />
-            </Badge>
-          ))}
-        </div>
-      )}
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>邀请码</TableHead>
             <TableHead>创建时间</TableHead>
             <TableHead>使用者</TableHead>
+            <TableHead>有效期</TableHead>
             <TableHead>状态</TableHead>
             <TableHead className="w-20">操作</TableHead>
           </TableRow>
@@ -127,6 +119,15 @@ function InvitesTab() {
               <TableCell>{new Date(inv.created_at).toLocaleString()}</TableCell>
               <TableCell>{inv.used_by_username ?? "-"}</TableCell>
               <TableCell>
+                {inv.expires_at === null ? (
+                  <span className="text-muted-foreground">永久</span>
+                ) : inv.expires_at < Date.now() ? (
+                  <span className="text-red-500">已过期</span>
+                ) : (
+                  new Date(inv.expires_at).toLocaleDateString()
+                )}
+              </TableCell>
+              <TableCell>
                 {inv.used_at ? <Badge>已使用</Badge> : <Badge variant="secondary">未使用</Badge>}
               </TableCell>
               <TableCell>
@@ -134,11 +135,14 @@ function InvitesTab() {
                   <Button variant="ghost" size="icon" onClick={() => copy(inv.code)}>
                     <Copy className="h-4 w-4" />
                   </Button>
-                  {!inv.used_at && (
-                    <Button variant="ghost" size="icon" onClick={() => void remove(inv.code)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="删除"
+                    onClick={() => void remove(inv.code)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </TableCell>
             </TableRow>
@@ -374,14 +378,12 @@ function UsersTab() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="add-expires">有效期（天，留空为永久）</Label>
-              <Input
-                id="add-expires"
-                type="number"
-                min={1}
+              <Label>有效期（天，留空为永久）</Label>
+              <NumberStepper
                 value={newUser.expiresInDays}
-                onChange={(e) => setNewUser({ ...newUser, expiresInDays: e.target.value })}
-                placeholder="留空 = 永久"
+                onChange={(v) => setNewUser({ ...newUser, expiresInDays: v })}
+                min={0}
+                placeholder="永久"
               />
             </div>
             <DialogFooter>
@@ -405,12 +407,11 @@ function UsersTab() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={saveExpires} className="flex flex-col gap-4">
-            <Input
-              type="number"
-              min={0}
+            <NumberStepper
               value={expiresDays}
-              onChange={(e) => setExpiresDays(e.target.value)}
-              placeholder="天数，0 = 永久"
+              onChange={setExpiresDays}
+              min={0}
+              placeholder="天数，空 = 永久"
             />
             <DialogFooter>
               <Button type="submit">保存</Button>

@@ -114,6 +114,13 @@ try {
   // 列已存在
 }
 
+// 邀请码有效期（NULL=永久；过期不可用于注册）
+try {
+  db.exec("ALTER TABLE invites ADD COLUMN expires_at INTEGER");
+} catch {
+  // 列已存在
+}
+
 // 首次启动：无 admin 则创建随机密码 admin，明文只打印一次并写入 data/admin-credentials.txt
 const adminRow = db
   .prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1")

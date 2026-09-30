@@ -124,7 +124,7 @@ export default function Layout() {
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           <Link to="/" className="flex items-center gap-1.5 font-bold text-red-500">
             <Clapperboard className="h-5 w-5" />
-            <span className="hidden sm:inline">{source.label}</span>
+            <span>{source.label}</span>
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             <Button variant="ghost" size="sm" onClick={() => navigate("/")}>

@@ -1,6 +1,10 @@
 import { Router, type Response } from "express";
 import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
+import path from "node:path";
+import fs from "node:fs";
+import crypto from "node:crypto";
+import { DATA_DIR } from "./config.ts";
 import { getUpstreamUrl } from "./db.ts";
 import { requireAuth } from "./auth.ts";
 
@@ -42,7 +46,7 @@ function unwrap(input: unknown): unknown {
 
 async function upstreamFetch(url: string): Promise<unknown> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  const timer = setTimeout(() => ctrl.abort(), 25_000);
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`upstream ${res.status}`);
@@ -150,8 +154,22 @@ hongguoRouter.get("/stream", async (req, res) => {
   }
 });
 
-// 海报图代理：手机只需连本站，避免第三方图床慢/中断导致的封面渲染异常。
-// 黄果图床域名小时级漂移，无法枚举白名单；接口有 requireAuth 保护，放宽为任意 http(s)。
+// 海报代理 + 磁盘缓存：手机只连本站；缓存避免重复拉上游导致浏览器连接饥饿
+const POSTER_CACHE_DIR = path.join(DATA_DIR, "poster-cache");
+fs.mkdirSync(POSTER_CACHE_DIR, { recursive: true });
+// 启动时清理：超 500 个文件删最旧
+{
+  const files = fs.readdirSync(POSTER_CACHE_DIR).filter((f) => f.endsWith(".bin"));
+  if (files.length > 500) {
+    const sorted = files
+      .map((f) => ({ f, mtime: fs.statSync(path.join(POSTER_CACHE_DIR, f)).mtimeMs }))
+      .sort((a, b) => a.mtime - b.mtime);
+    for (const { f } of sorted.slice(0, files.length - 500)) {
+      fs.rmSync(path.join(POSTER_CACHE_DIR, f), { force: true });
+      fs.rmSync(path.join(POSTER_CACHE_DIR, f.replace(/\.bin$/, ".ct")), { force: true });
+    }
+  }
+}
 hongguoRouter.get("/poster", async (req, res) => {
   let target: string;
   try {
@@ -166,27 +184,31 @@ hongguoRouter.get("/poster", async (req, res) => {
     return res.status(400).json({ error: "非法地址" });
   }
 
+  // 命中磁盘缓存直接返回
+  const key = crypto.createHash("sha256").update(target).digest("hex");
+  const binFile = path.join(POSTER_CACHE_DIR, `${key}.bin`);
+  const ctFile = path.join(POSTER_CACHE_DIR, `${key}.ct`);
+  if (fs.existsSync(binFile)) {
+    res.setHeader("Content-Type", fs.existsSync(ctFile) ? fs.readFileSync(ctFile, "utf8") : "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    return fs.createReadStream(binFile).pipe(res);
+  }
+
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15_000);
   try {
     const up = await fetch(target, { signal: ctrl.signal });
-    if (!up.ok || !up.body) {
-      clearTimeout(timer);
-      return res.status(502).json({ error: "上游服务不可用" });
-    }
-    res.status(up.status);
-    res.setHeader("Content-Type", up.headers.get("content-type") ?? "image/jpeg");
+    clearTimeout(timer);
+    if (!up.ok) return res.status(502).json({ error: "上游服务不可用" });
+    // 海报几百 KB，直接读入内存后写缓存再响应（比 tee 流简单可靠）
+    const buf = Buffer.from(await up.arrayBuffer());
+    const ct = up.headers.get("content-type") ?? "image/jpeg";
+    fs.writeFileSync(binFile, buf);
+    fs.writeFileSync(ctFile, ct);
+    res.setHeader("Content-Type", ct);
     res.setHeader("Cache-Control", "public, max-age=86400");
-    const len = up.headers.get("content-length");
-    if (len) res.setHeader("Content-Length", len);
-    const body = up.body as unknown as ReadableStream;
-    const stream = Readable.fromWeb(body);
-    stream.on("error", () => {});
-    stream.pipe(res);
-    res.on("close", () => {
-      clearTimeout(timer);
-      ctrl.abort();
-    });
+    res.setHeader("Content-Length", String(buf.length));
+    res.send(buf);
   } catch {
     clearTimeout(timer);
     if (!res.headersSent) upstreamError(res);

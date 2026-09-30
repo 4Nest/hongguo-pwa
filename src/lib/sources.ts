@@ -54,6 +54,37 @@ export const SOURCES: Record<SourceId, SourceConfig> = {
   },
 };
 
+// ---- 「猜你喜欢」缓存：30 分钟 TTL，按源分 key；有新观看记录时清除 ----
+
+const REC_TTL = 30 * 60 * 1000;
+const recKey = (sourceId: string) => `hg-rec-${sourceId}`;
+
+export function readRecommendCache<T>(sourceId: string): { items: T[]; stale: boolean } | null {
+  try {
+    const raw = localStorage.getItem(recKey(sourceId));
+    if (!raw) return null;
+    const { at, items } = JSON.parse(raw) as { at: number; items: T[] };
+    if (!Array.isArray(items) || items.length === 0) return null;
+    // 过期也返回（先显示），由调用方后台刷新
+    return { items, stale: Date.now() - at >= REC_TTL };
+  } catch {
+    return null;
+  }
+}
+
+export function writeRecommendCache(sourceId: string, items: unknown[]) {
+  try {
+    localStorage.setItem(recKey(sourceId), JSON.stringify({ at: Date.now(), items }));
+  } catch {
+    // 存储满则忽略
+  }
+}
+
+export function invalidateRecommendCache() {
+  localStorage.removeItem(recKey("hongguo"));
+  localStorage.removeItem(recKey("huangguo"));
+}
+
 export function isSourceId(v: unknown): v is SourceId {
   return v === "hongguo" || v === "huangguo";
 }

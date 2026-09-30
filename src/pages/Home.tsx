@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { usePagedItems } from "@/hooks/usePagedItems";
-import { useSource, type SourceConfig } from "@/lib/sources";
+import { useSource, readRecommendCache, writeRecommendCache, type SourceConfig } from "@/lib/sources";
 /* ---------------- 最近观看 ---------------- */
 
 function RecentSection() {
@@ -96,10 +96,6 @@ async function fetchRecommendations(source: SourceConfig): Promise<MediaItem[]> 
 
   if (seed?.title) {
     const kw = seed.title.replace(/[，。：！？、\s《》「」·-].*$/, "").slice(0, 2) || seed.title;
-    const searched = await api<{ items: MediaItem[] }>(
-      `${source.apiBase}/search?q=${encodeURIComponent(kw)}&page=1`,
-    ).catch(() => ({ items: [] }));
-    push(searched.items ?? []);
     // 同分类热门补充（黄果用「推荐」分类）
     const category =
       source.id === "huangguo"
@@ -107,9 +103,16 @@ async function fetchRecommendations(source: SourceConfig): Promise<MediaItem[]> 
         : latestFav?.mediaType === "comic"
           ? "comic"
           : "short";
-    const browse = await api<{ items: MediaItem[] }>(
-      `${source.apiBase}/browse?category=${category}&page=1`,
-    ).catch(() => ({ items: [] }));
+    // 搜索与热门并行：上游搜索可能很慢，不串行拖累
+    const [searched, browse] = await Promise.all([
+      api<{ items: MediaItem[] }>(
+        `${source.apiBase}/search?q=${encodeURIComponent(kw)}&page=1`,
+      ).catch(() => ({ items: [] })),
+      api<{ items: MediaItem[] }>(
+        `${source.apiBase}/browse?category=${category}&page=1`,
+      ).catch(() => ({ items: [] })),
+    ]);
+    push(searched.items ?? []);
     push(browse.items ?? []);
   } else {
     const hot = await api<{ items: MediaItem[] }>(
@@ -122,12 +125,24 @@ async function fetchRecommendations(source: SourceConfig): Promise<MediaItem[]> 
 
 function RecommendSection() {
   const [items, setItems] = useState<MediaItem[] | null>(null);
-
   const source = useSource();
 
   useEffect(() => {
-    setItems(null);
-    fetchRecommendations(source).then(setItems).catch(() => setItems([]));
+    // 有缓存（哪怕过期）立即显示，过期或无缓存则后台刷新替换
+    const cached = readRecommendCache<MediaItem>(source.id);
+    if (cached) setItems(cached.items);
+    if (cached && !cached.stale) return;
+    if (!cached) setItems(null);
+    fetchRecommendations(source)
+      .then((list) => {
+        if (list.length > 0) {
+          setItems(list);
+          writeRecommendCache(source.id, list);
+        }
+      })
+      .catch(() => {
+        if (!cached) setItems([]);
+      });
   }, [source.id]);
 
   if (items === null) return <MediaGrid items={[]} loading className="mt-2" />;

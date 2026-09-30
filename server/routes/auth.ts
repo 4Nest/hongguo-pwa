@@ -16,10 +16,12 @@ authRouter.post("/register", (req, res) => {
     return res.status(400).json({ error: "用户名不能为空且密码至少 6 位" });
 
   const invite = db.prepare("SELECT * FROM invites WHERE code = ?").get(inviteCode.trim()) as
-    | { code: string; used_by: number | null }
+    | { code: string; used_by: number | null; expires_at: number | null }
     | undefined;
   if (!invite || invite.used_by !== null)
     return res.status(400).json({ error: "邀请码无效或已使用" });
+  if (invite.expires_at !== null && invite.expires_at < Date.now())
+    return res.status(400).json({ error: "邀请码已过期" });
   if (getUserByName.get(name)) return res.status(400).json({ error: "用户名已被占用" });
 
   const hash = bcrypt.hashSync(password, 10);

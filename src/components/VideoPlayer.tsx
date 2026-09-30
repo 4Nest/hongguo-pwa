@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Maximize } from "lucide-react";
 import Hls from "hls.js";
 import { toast } from "sonner";
+import { invalidateRecommendCache } from "@/lib/sources";
 import { api, type Detail, type Episode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -27,7 +28,7 @@ function report(detail: Detail, episode: Episode, positionSec: number, source: s
       positionSec: Math.floor(positionSec),
       source,
     },
-  }).catch(() => {});
+  }).then(() => invalidateRecommendCache()).catch(() => {});
 }
 
 export default function VideoPlayer({ detail, episode, episodes, resumeAt, source }: Props) {
