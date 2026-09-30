@@ -1,53 +1,108 @@
 # 红果短剧 PWA
 
-红果短剧 Web 应用：搜索、播放、榜单/分类推荐、最近观看、收藏，支持 PWA 安装与应用内连续播放。
+[![Docker 构建](https://github.com/4Nest/hongguo-pwa/actions/workflows/docker.yml/badge.svg)](https://github.com/4Nest/hongguo-pwa/actions/workflows/docker.yml)
+[![镜像](https://img.shields.io/badge/GHCR-4nest%2Fhongguo--pwa-blue)](https://github.com/4Nest/hongguo-pwa/pkgs/container/hongguo-pwa)
 
-## 技术栈
+红果短剧 Web 应用，搭配 [Capy Backend](https://hub.docker.com/r/cs920/happy-capy) 使用。PWA 可安装到手机主屏，体验接近原生 App。
 
-- 前端：Vite + React + TypeScript + Tailwind v4 + shadcn/ui + vite-plugin-pwa
-- 后端：Express + better-sqlite3（`tsx` 直接跑 TS），JWT httpOnly cookie 认证
-- 数据源：局域网 Capy Backend（默认 `http://192.168.2.110:8788`），全部经本站 `/api/hongguo/*` 代理（视频流 Range 透传）
+## 功能
 
-## 开发
+- 🔍 搜索、分类浏览（短剧/漫剧）、6 个榜单
+- ▶️ 应用内播放器：自动连播、进度记忆、断点续播、Media Session
+- 🏠 首页：最近观看、猜你喜欢（基于观看/收藏的推荐）
+- ❤️ 收藏与最近观看（服务端存储，跨设备同步）
+- 👥 多用户：邀请码注册、修改密码、管理面板（邀请码/添加用户/重置密码/删除用户）
+- 📦 视频流服务端代理（Range 透传），海报本站代理缓存
 
-```bash
-pnpm install
-pnpm dev        # tsx watch 后端 :8789 + vite 前端 :5173（/api 代理到 8789）
+## 快速开始（Docker）
+
+镜像已发布到 GHCR（amd64 + arm64），无需克隆仓库：
+
+```yaml
+# docker-compose.yml
+services:
+  capy:
+    image: cs920/happy-capy:latest
+    restart: unless-stopped
+    volumes:
+      - capy-data:/data
+
+  hongguo:
+    image: ghcr.io/4nest/hongguo-pwa:latest
+    restart: unless-stopped
+    ports:
+      - "8789:8789"
+    environment:
+      UPSTREAM_URL: http://capy:8788
+    volumes:
+      - hongguo-data:/app/data
+    depends_on:
+      - capy
+
+volumes:
+  capy-data:
+  hongguo-data:
 ```
 
-## 生产
-
 ```bash
-pnpm build      # 生成 dist/ 与 PWA 图标
-NODE_ENV=production pnpm start   # :8789，托管 dist/ + API
+docker compose up -d
+# 访问 http://localhost:8789
+# 取 admin 初始密码：
+docker exec hongguo cat /app/data/admin-credentials.txt
 ```
 
-## 环境变量
-
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `PORT` | `8789` | 服务端口 |
-| `UPSTREAM_URL` | `http://192.168.2.110:8788` | Capy Backend 地址 |
-| `DATA_DIR` | `./data` | SQLite 与凭证文件目录 |
-| `JWT_SECRET` | 自动生成并持久化到 `data/jwt-secret` | JWT 签名密钥 |
-
-## Docker 部署（搭配 cs920/happy-capy）
-
-```bash
-docker compose up -d   # 先构建：docker compose build；capy 的 config.toml 放 ./capy-config/
-```
-
-或单独运行（上游用局域网已有实例）：
+已有运行中的 Capy Backend 则只需单容器：
 
 ```bash
 docker run -d --name hongguo -p 8789:8789 \
-  -e UPSTREAM_URL=http://192.168.2.110:8788 \
+  -e UPSTREAM_URL=http://<capy地址>:8788 \
   -v hongguo-data:/app/data \
   ghcr.io/4nest/hongguo-pwa:latest
 ```
 
-`/app/data` 卷保存 SQLite、JWT 密钥与 admin 初始凭证（`docker exec hongguo cat /app/data/admin-credentials.txt`）。
+## 账号体系
 
-## 管理员
+| 事项 | 说明 |
+| --- | --- |
+| admin 初始化 | 首次启动自动创建，随机密码写入 `/app/data/admin-credentials.txt`（0600，仅写一次）并打印启动日志 |
+| 注册 | 需要邀请码（管理面板生成）或由 admin 直接创建用户 |
+| 忘记密码 | admin 可在面板重置任意用户密码；admin 密码丢失则删除 `data/app.db` 重启重建（会清空全部用户数据） |
 
-首次启动自动创建 `admin`，随机密码打印在启动日志并写入 `data/admin-credentials.txt`（0600，仅写一次）。忘记密码：删除 `data/app.db` 重启即可重建（会清空全部用户数据）。管理面板 `/admin` 可生成邀请码、管理用户；注册必须提供有效邀请码。
+## 配置
+
+| 环境变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8789` | 服务端口 |
+| `UPSTREAM_URL` | `http://192.168.2.110:8788` | Capy Backend 地址（compose 内为 `http://capy:8788`） |
+| `DATA_DIR` | `./data`（容器内 `/app/data`） | SQLite、JWT 密钥、admin 凭证所在目录 |
+| `JWT_SECRET` | 自动生成并持久化 | JWT 签名密钥，一般无需设置 |
+
+## 本地开发
+
+```bash
+pnpm install
+pnpm dev        # 后端 :8789（tsx watch）+ 前端 :5173（/api 代理到 8789）
+```
+
+生产模式（不经过 Docker）：
+
+```bash
+pnpm build                      # 生成 dist/ 与 PWA 图标
+NODE_ENV=production pnpm start  # :8789 托管 dist/ + API
+```
+
+## 技术栈
+
+- **前端**：Vite · React 19 · TypeScript · Tailwind CSS v4 · shadcn/ui · vite-plugin-pwa
+- **后端**：Express 4 · better-sqlite3 · tsx（免编译直跑 TS）· JWT httpOnly Cookie
+- **CI/CD**：GitHub Actions 双架构构建推送 GHCR（push 到 `main` 自动触发）
+
+## 仓库结构
+
+```
+server/          Express 后端（auth / admin / me / 上游代理）
+src/             React 前端（pages / components / hooks）
+public/icons/    PWA 图标（scripts/gen-icons.mjs 生成）
+Dockerfile       多阶段构建（国内默认 npmmirror，CI 走 npmjs）
+docker-compose.yml  capy + 红果组合编排示例
+```
