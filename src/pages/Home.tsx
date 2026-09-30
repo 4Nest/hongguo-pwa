@@ -13,12 +13,15 @@ import { useSource, readRecommendCache, writeRecommendCache, type SourceConfig }
 function RecentSection() {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const navigate = useNavigate();
+  const source = useSource();
 
   useEffect(() => {
     api<{ history: HistoryItem[] }>("/api/me/history")
-      .then((d) => setItems(d.history.slice(0, 10)))
+      .then((d) =>
+        setItems(d.history.filter((h) => (h.source ?? "hongguo") === source.id).slice(0, 10)),
+      )
       .catch(() => {});
-  }, []);
+  }, [source.id]);
 
   if (items.length === 0) return null;
   return (

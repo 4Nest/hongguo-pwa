@@ -3,24 +3,26 @@ import { Link, useNavigate } from "react-router-dom";
 import { Play, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, posterSrc, type HistoryItem } from "@/lib/api";
+import { useSource } from "@/lib/sources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 export default function History() {
   const [items, setItems] = useState<HistoryItem[] | null>(null);
   const navigate = useNavigate();
+  const source = useSource();
 
   const load = () =>
     api<{ history: HistoryItem[] }>("/api/me/history")
-      .then((d) => setItems(d.history))
+      .then((d) => setItems(d.history.filter((h) => (h.source ?? "hongguo") === source.id)))
       .catch(() => setItems([]));
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [source.id]);
 
   const remove = async (itemId: string) => {
-    await api(`/api/me/history/${itemId}`, { method: "DELETE" });
+    await api(`/api/me/history/${encodeURIComponent(itemId)}`, { method: "DELETE" });
     setItems((prev) => (prev ?? []).filter((h) => h.itemId !== itemId));
     toast.success("已删除");
   };

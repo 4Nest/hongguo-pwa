@@ -6,9 +6,8 @@ services:
     image: cs920/happy-capy:latest
     container_name: capy
     restart: unless-stopped
-    # 红果容器走内部网络直连，无需对公网暴露；本地调试可解开下行
-    # ports:
-    #   - "8788:8788"
+    ports:
+      - "8788:8788"
     volumes:
       - capy-data:/data
       # 如需自定义配置：把 config.toml 放到 ./capy-config/

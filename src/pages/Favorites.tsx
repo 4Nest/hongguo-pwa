@@ -2,15 +2,17 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type FavoriteItem } from "@/lib/api";
 import { MediaGrid } from "@/components/MediaGrid";
+import { useSource } from "@/lib/sources";
 
 export default function Favorites() {
   const [items, setItems] = useState<FavoriteItem[] | null>(null);
+  const source = useSource();
 
   useEffect(() => {
     api<{ favorites: FavoriteItem[] }>("/api/me/favorites")
-      .then((d) => setItems(d.favorites))
+      .then((d) => setItems(d.favorites.filter((f) => (f.source ?? "hongguo") === source.id)))
       .catch(() => setItems([]));
-  }, []);
+  }, [source.id]);
 
   return (
     <div>
