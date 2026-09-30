@@ -5,6 +5,8 @@ export interface MediaItem {
   posterUrl: string;
   description: string;
   remark?: string;
+  /** 所属数据源（收藏/历史回填用） */
+  source?: string;
 }
 
 export interface Episode {
@@ -36,6 +38,8 @@ export interface User {
   id: number;
   username: string;
   role: string;
+  source?: string;
+  huangguoEnabled?: boolean;
 }
 
 export interface FavoriteItem {
@@ -44,6 +48,7 @@ export interface FavoriteItem {
   posterUrl: string | null;
   remark: string | null;
   mediaType: string | null;
+  source?: string;
   createdAt: number;
 }
 
@@ -54,6 +59,7 @@ export interface HistoryItem {
   episodeId: string | null;
   episodeNumber: number | null;
   positionSec: number | null;
+  source?: string;
   updatedAt: number;
 }
 

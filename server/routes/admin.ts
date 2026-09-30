@@ -1,11 +1,25 @@
 import { Router } from "express";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db } from "../db.ts";
+import { db, getSetting, setSetting } from "../db.ts";
 import { requireAdmin, type AuthedRequest } from "../auth.ts";
+
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+
+// ---- 全局设置 ----
+
+adminRouter.get("/settings", (_req, res) => {
+  res.json({ huangguoEnabled: getSetting("huangguo_enabled") === "1" });
+});
+
+adminRouter.put("/settings", (req, res) => {
+  const { huangguoEnabled } = req.body ?? {};
+  if (typeof huangguoEnabled !== "boolean") return res.status(400).json({ error: "参数不完整" });
+  setSetting("huangguo_enabled", huangguoEnabled ? "1" : "0");
+  res.json({ ok: true, huangguoEnabled });
+});
 
 function genCode(): string {
   for (let i = 0; i < 10; i++) {

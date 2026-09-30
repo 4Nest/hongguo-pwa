@@ -36,7 +36,7 @@ export default function History() {
             <div
               key={h.itemId}
               className="flex cursor-pointer items-center gap-3 rounded-md border p-2 hover:bg-accent"
-              onClick={() => navigate(`/play/${h.itemId}/${h.episodeNumber ?? 1}`)}
+              onClick={() => navigate(`/play/${h.source ?? "hongguo"}/${encodeURIComponent(h.itemId)}/${h.episodeNumber ?? 1}`)}
             >
               <img
                 src={posterSrc(h.posterUrl)}
@@ -53,7 +53,7 @@ export default function History() {
                 </div>
               </div>
               <Button variant="ghost" size="icon" className="shrink-0" asChild>
-                <Link to={`/play/${h.itemId}/${h.episodeNumber ?? 1}`}>
+                <Link to={`/play/${h.source ?? "hongguo"}/${encodeURIComponent(h.itemId)}/${h.episodeNumber ?? 1}`}>
                   <Play className="h-4 w-4" />
                 </Link>
               </Button>

@@ -2,14 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Heart, Play } from "lucide-react";
 import { toast } from "sonner";
-import { api, ApiError, posterSrc, type Detail as DetailType, type FavoriteItem, type HistoryItem } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  posterSrc,
+  type Detail as DetailType,
+  type FavoriteItem,
+  type HistoryItem,
+} from "@/lib/api";
+import { isSourceId, SOURCES } from "@/lib/sources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export default function Detail() {
-  const { id = "" } = useParams();
+  const { source: sourceParam = "hongguo", id: rawId = "" } = useParams();
+  const source = SOURCES[isSourceId(sourceParam) ? sourceParam : "hongguo"];
+  const id = rawId;
   const navigate = useNavigate();
   const [detail, setDetail] = useState<DetailType | null>(null);
   const [favorited, setFavorited] = useState(false);
@@ -19,27 +29,36 @@ export default function Detail() {
   useEffect(() => {
     setDetail(null);
     setError("");
-    api<DetailType>(`/api/hongguo/items/${id}`)
+    api<DetailType>(`${source.apiBase}/items/${encodeURIComponent(id)}`)
       .then(setDetail)
       .catch((err) => setError(err instanceof ApiError ? err.message : "加载失败"));
     api<{ favorites: FavoriteItem[] }>("/api/me/favorites")
-      .then((d) => setFavorited(d.favorites.some((f) => f.itemId === id)))
+      .then((d) =>
+        setFavorited(d.favorites.some((f) => f.itemId === id && (f.source ?? "hongguo") === source.id)),
+      )
       .catch(() => {});
     api<{ history: HistoryItem[] }>("/api/me/history")
-      .then((d) => setHistory(d.history.find((h) => h.itemId === id) ?? null))
+      .then((d) =>
+        setHistory(
+          d.history.find((h) => h.itemId === id && (h.source ?? "hongguo") === source.id) ?? null,
+        ),
+      )
       .catch(() => {});
-  }, [id]);
+  }, [id, source]);
 
   const episodes = useMemo(
     () => (detail?.seasons ?? []).flatMap((s) => s.episodes ?? []),
     [detail],
   );
 
+  const playPath = (ep: number) =>
+    `/play/${source.id}/${encodeURIComponent(id)}/${ep}`;
+
   const toggleFavorite = async () => {
     if (!detail) return;
     try {
       if (favorited) {
-        await api(`/api/me/favorites/${id}`, { method: "DELETE" });
+        await api(`/api/me/favorites/${encodeURIComponent(id)}`, { method: "DELETE" });
         setFavorited(false);
         toast.success("已取消收藏");
       } else {
@@ -51,6 +70,7 @@ export default function Detail() {
             posterUrl: detail.posterUrl,
             remark: `全${detail.episodeCount}集`,
             mediaType: detail.mediaType,
+            source: source.id,
           },
         });
         setFavorited(true);
@@ -88,18 +108,14 @@ export default function Detail() {
         <div className="flex flex-1 flex-col gap-3">
           <h1 className="text-xl font-semibold">{detail.title}</h1>
           <div className="flex gap-2">
-            <Badge variant="secondary">{detail.mediaType === "tv" ? "短剧" : detail.mediaType}</Badge>
+            <Badge variant="secondary">{source.label}</Badge>
             <Badge variant="secondary">全{detail.episodeCount}集</Badge>
           </div>
           {detail.description && (
             <p className="line-clamp-4 text-sm text-muted-foreground">{detail.description}</p>
           )}
           <div className="mt-auto flex gap-2 pt-2">
-            <Button
-              onClick={() =>
-                navigate(`/play/${id}/${continueEp ?? episodes[0]?.episodeNumber ?? 1}`)
-              }
-            >
+            <Button onClick={() => navigate(playPath(continueEp ?? episodes[0]?.episodeNumber ?? 1))}>
               <Play className="mr-1 h-4 w-4" />
               {continueEp ? `继续播放 第${continueEp}集` : "开始播放"}
             </Button>
@@ -119,7 +135,7 @@ export default function Detail() {
               key={ep.id}
               variant={ep.episodeNumber === continueEp ? "default" : "outline"}
               size="sm"
-              onClick={() => navigate(`/play/${id}/${ep.episodeNumber}`)}
+              onClick={() => navigate(playPath(ep.episodeNumber))}
             >
               {ep.episodeNumber}
             </Button>

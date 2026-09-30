@@ -8,12 +8,14 @@ import {
   KeyRound,
   LogOut,
   Search,
+  Settings as SettingsIcon,
   Trophy,
   Shield,
   User as UserIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { useSource } from "@/lib/sources";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,17 +105,9 @@ export function ChangePasswordDialog({
   );
 }
 
-export const RANKS = [
-  { id: "short-hot", label: "短剧热播" },
-  { id: "short-new", label: "短剧新剧" },
-  { id: "short-hot-search", label: "热搜榜" },
-  { id: "short-yearly", label: "年度榜" },
-  { id: "comic-hot", label: "漫剧热播" },
-  { id: "comic-new", label: "漫剧新剧" },
-] as const;
-
 export default function Layout() {
   const { user, logout } = useAuth();
+  const source = useSource();
   const navigate = useNavigate();
   const [keyword, setKeyword] = useState("");
   const [pwdOpen, setPwdOpen] = useState(false);
@@ -126,22 +120,26 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           <Link to="/" className="flex items-center gap-1.5 font-bold text-red-500">
             <Clapperboard className="h-5 w-5" />
-            <span className="hidden sm:inline">红果短剧</span>
+            <span className="hidden sm:inline">{source.label}</span>
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             <Button variant="ghost" size="sm" onClick={() => navigate("/")}>
               首页
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/browse/short")}>
-              短剧
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/browse/comic")}>
-              漫剧
-            </Button>
+            {source.categories.slice(0, 2).map((c) => (
+              <Button
+                key={c.id}
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(`/browse/${c.id}`)}
+              >
+                {c.label}
+              </Button>
+            ))}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm">
@@ -149,7 +147,7 @@ export default function Layout() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                {RANKS.map((r) => (
+                {source.ranks.map((r) => (
                   <DropdownMenuItem key={r.id} onClick={() => navigate(`/rank/${r.id}`)}>
                     {r.label}
                   </DropdownMenuItem>
@@ -183,6 +181,9 @@ export default function Layout() {
               <DropdownMenuItem onClick={() => navigate("/history")}>
                 <History className="mr-2 h-4 w-4" /> 最近观看
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/settings")}>
+                <SettingsIcon className="mr-2 h-4 w-4" /> 设置
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setPwdOpen(true)}>
                 <KeyRound className="mr-2 h-4 w-4" /> 修改密码
               </DropdownMenuItem>
@@ -210,7 +211,7 @@ export default function Layout() {
       </main>
 
       {/* 移动端底部 tab */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {[
           { to: "/", icon: Home, label: "首页" },
           { to: "/ranks", icon: Trophy, label: "榜单" },

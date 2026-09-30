@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Maximize } from "lucide-react";
+import Hls from "hls.js";
 import { toast } from "sonner";
 import { api, type Detail, type Episode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -10,10 +11,11 @@ interface Props {
   episode: Episode;
   episodes: Episode[];
   resumeAt: number | null;
+  source: string;
 }
 
 /** 上报观看进度（每部剧只记最新位置）；5s 节流兜底，失败无碍 */
-function report(detail: Detail, episode: Episode, positionSec: number) {
+function report(detail: Detail, episode: Episode, positionSec: number, source: string) {
   void api("/api/me/history", {
     method: "POST",
     body: {
@@ -23,11 +25,12 @@ function report(detail: Detail, episode: Episode, positionSec: number) {
       episodeId: episode.id,
       episodeNumber: episode.episodeNumber,
       positionSec: Math.floor(positionSec),
+      source,
     },
   }).catch(() => {});
 }
 
-export default function VideoPlayer({ detail, episode, episodes, resumeAt }: Props) {
+export default function VideoPlayer({ detail, episode, episodes, resumeAt, source }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastReportRef = useRef(0);
   // null=未知(默认 16:9)；加载元数据后按真实方向切换
@@ -40,10 +43,53 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt }: Pro
 
   const goEpisode = useCallback(
     (ep: Episode) => {
-      navigate(`/play/${detail.id}/${ep.episodeNumber}`, { replace: true });
+      navigate(`/play/${source}/${encodeURIComponent(detail.id)}/${ep.episodeNumber}`, { replace: true });
     },
-    [detail.id, navigate],
+    [detail.id, navigate, source],
   );
+
+  // 加载媒体：m3u8 走 HLS（Safari 原生 / 其他浏览器 hls.js），mp4 直接 src
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const src = episode.streamUrl;
+    let raw = "";
+    try {
+      raw = decodeURIComponent(new URLSearchParams(src.split("?")[1] ?? "").get("u") ?? "");
+    } catch {
+      raw = "";
+    }
+    let isHls = /\.m3u8(\?|$)/i.test(raw) || /\.m3u8(\?|$)/i.test(src);
+    let hls: { destroy: () => void } | null = null;
+    let cancelled = false;
+
+    void (async () => {
+      // URL 无 .m3u8 后缀时（黄果流是 /videos5/hash 形式）HEAD 探测 content-type
+      if (!isHls) {
+        try {
+          const probe = await fetch(src, { method: "HEAD", credentials: "same-origin" });
+          isHls = (probe.headers.get("content-type") ?? "").includes("mpegurl");
+        } catch {
+          // 探测失败按非 HLS 处理
+        }
+      }
+      if (cancelled) return;
+      if (isHls && !video.canPlayType("application/vnd.apple.mpegurl") && Hls.isSupported()) {
+        const h = new Hls();
+        hls = h;
+        h.loadSource(src);
+        h.attachMedia(video);
+        return;
+      }
+      video.src = src;
+    })();
+    return () => {
+      cancelled = true;
+      hls?.destroy();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [episode.streamUrl]);
 
   // 恢复进度
   useEffect(() => {
@@ -64,11 +110,11 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt }: Pro
       const now = Date.now();
       if (now - lastReportRef.current >= 5000) {
         lastReportRef.current = now;
-        report(detail, episode, video.currentTime);
+        report(detail, episode, video.currentTime, source);
       }
     };
-    const onPause = () => report(detail, episode, video.currentTime);
-    const onUnload = () => report(detail, episode, video.currentTime);
+    const onPause = () => report(detail, episode, video.currentTime, source);
+    const onUnload = () => report(detail, episode, video.currentTime, source);
     video.addEventListener("timeupdate", onTime);
     video.addEventListener("pause", onPause);
     window.addEventListener("beforeunload", onUnload);
@@ -77,7 +123,7 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt }: Pro
       video.removeEventListener("pause", onPause);
       window.removeEventListener("beforeunload", onUnload);
     };
-  }, [detail, episode]);
+  }, [detail, episode, source]);
 
   // 自动连播
   useEffect(() => {
@@ -134,7 +180,6 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt }: Pro
           controls
           playsInline
           preload="auto"
-          src={episode.streamUrl}
           onLoadedMetadata={(e) =>
             setPortrait(e.currentTarget.videoHeight > e.currentTarget.videoWidth)
           }

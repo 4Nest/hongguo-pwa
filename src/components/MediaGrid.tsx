@@ -1,12 +1,15 @@
 import { Link } from "react-router-dom";
 import { posterSrc, type MediaItem } from "@/lib/api";
+import { useSource } from "@/lib/sources";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function MediaCard({ item }: { item: MediaItem }) {
+  const current = useSource();
+  const source = item.source === "huangguo" ? "huangguo" : (item.source ?? current.id);
   return (
-    <Link to={`/detail/${item.id}`} className="group block">
+    <Link to={`/detail/${source}/${encodeURIComponent(item.id)}`} className="group block">
       <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-muted">
         <img
           src={posterSrc(item.posterUrl)}

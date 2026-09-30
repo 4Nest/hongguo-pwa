@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { usePagedItems } from "@/hooks/usePagedItems";
-
+import { useSource, type SourceConfig } from "@/lib/sources";
 /* ---------------- 最近观看 ---------------- */
 
 function RecentSection() {
@@ -31,7 +31,11 @@ function RecentSection() {
           <div
             key={h.itemId}
             className="w-28 shrink-0 cursor-pointer sm:w-32"
-            onClick={() => navigate(`/play/${h.itemId}/${h.episodeNumber ?? 1}`)}
+            onClick={() =>
+              navigate(
+                `/play/${h.source ?? "hongguo"}/${encodeURIComponent(h.itemId)}/${h.episodeNumber ?? 1}`,
+              )
+            }
           >
             <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-muted">
               <img
@@ -65,7 +69,7 @@ function RecentSection() {
  * 2. 合并「同分类 browse 热门」，排除已看过/已收藏
  * 3. 无任何互动时回退到热播榜
  */
-async function fetchRecommendations(): Promise<MediaItem[]> {
+async function fetchRecommendations(source: SourceConfig): Promise<MediaItem[]> {
   const [favRes, hisRes] = await Promise.all([
     api<{ favorites: FavoriteItem[] }>("/api/me/favorites").catch(() => ({ favorites: [] })),
     api<{ history: HistoryItem[] }>("/api/me/history").catch(() => ({ history: [] })),
@@ -91,33 +95,40 @@ async function fetchRecommendations(): Promise<MediaItem[]> {
   };
 
   if (seed?.title) {
-    // 标题关键词搜索（取前 2 个字，太短则用全名）
     const kw = seed.title.replace(/[，。：！？、\s《》「」·-].*$/, "").slice(0, 2) || seed.title;
     const searched = await api<{ items: MediaItem[] }>(
-      `/api/hongguo/search?q=${encodeURIComponent(kw)}&page=1`,
+      `${source.apiBase}/search?q=${encodeURIComponent(kw)}&page=1`,
     ).catch(() => ({ items: [] }));
     push(searched.items ?? []);
-    // 同分类热门补充
-    const category = latestFav?.mediaType === "comic" ? "comic" : "short";
+    // 同分类热门补充（黄果用「推荐」分类）
+    const category =
+      source.id === "huangguo"
+        ? "recommend"
+        : latestFav?.mediaType === "comic"
+          ? "comic"
+          : "short";
     const browse = await api<{ items: MediaItem[] }>(
-      `/api/hongguo/browse?category=${category}&page=1`,
+      `${source.apiBase}/browse?category=${category}&page=1`,
     ).catch(() => ({ items: [] }));
     push(browse.items ?? []);
   } else {
     const hot = await api<{ items: MediaItem[] }>(
-      "/api/hongguo/browse?category=rank&rank=short-hot&page=1",
+      `${source.apiBase}/browse?category=rank&rank=${source.hotRank}&page=1`,
     ).catch(() => ({ items: [] }));
     push(hot.items ?? []);
   }
-  return collected.slice(0, 12);
+  return collected.slice(0, 12).map((m) => ({ ...m, source: source.id }));
 }
 
 function RecommendSection() {
   const [items, setItems] = useState<MediaItem[] | null>(null);
 
+  const source = useSource();
+
   useEffect(() => {
-    fetchRecommendations().then(setItems).catch(() => setItems([]));
-  }, []);
+    setItems(null);
+    fetchRecommendations(source).then(setItems).catch(() => setItems([]));
+  }, [source.id]);
 
   if (items === null) return <MediaGrid items={[]} loading className="mt-2" />;
   if (items.length === 0) return null;
@@ -139,10 +150,10 @@ function RecommendSection() {
 
 /* ---------------- 分类 feed ---------------- */
 
-function CategoryFeed({ category }: { category: "short" | "comic" }) {
+function CategoryFeed({ source, category }: { source: SourceConfig; category: string }) {
   const { items, hasMore, loading, initialLoaded, loadMore, sentinelRef } = usePagedItems(
-    (page) => `/api/hongguo/browse?category=${category}&page=${page}`,
-    category,
+    (page) => `${source.apiBase}/browse?category=${category}&page=${page}`,
+    `${source.id}-${category}`,
   );
   return (
     <div>
@@ -165,21 +176,24 @@ function CategoryFeed({ category }: { category: "short" | "comic" }) {
 /* ---------------- 首页 ---------------- */
 
 export default function Home() {
+  const source = useSource();
   return (
     <div className="flex flex-col gap-6">
       <RecentSection />
       <RecommendSection />
-      <Tabs defaultValue="short">
+      <Tabs key={source.id} defaultValue={source.categories[0]?.id}>
         <TabsList>
-          <TabsTrigger value="short">短剧</TabsTrigger>
-          <TabsTrigger value="comic">漫剧</TabsTrigger>
+          {source.categories.map((c) => (
+            <TabsTrigger key={c.id} value={c.id}>
+              {c.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
-        <TabsContent value="short">
-          <CategoryFeed category="short" />
-        </TabsContent>
-        <TabsContent value="comic">
-          <CategoryFeed category="comic" />
-        </TabsContent>
+        {source.categories.map((c) => (
+          <TabsContent key={c.id} value={c.id}>
+            <CategoryFeed source={source} category={c.id} />
+          </TabsContent>
+        ))}
       </Tabs>
     </div>
   );

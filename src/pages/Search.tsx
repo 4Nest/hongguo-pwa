@@ -4,11 +4,13 @@ import { MediaGrid } from "@/components/MediaGrid";
 import { usePagedItems } from "@/hooks/usePagedItems";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useSource } from "@/lib/sources";
 
 export default function Search() {
   const [params, setParams] = useSearchParams();
   const keyword = params.get("keyword") ?? "";
   const [input, setInput] = useState(keyword);
+  const source = useSource();
 
   // 输入防抖 300ms 更新 URL（触发搜索）
   useEffect(() => {
@@ -18,10 +20,9 @@ export default function Search() {
     }, 300);
     return () => clearTimeout(t);
   }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const { items, hasMore, loading, initialLoaded, loadMore, sentinelRef } = usePagedItems(
-    (page) => `/api/hongguo/search?q=${encodeURIComponent(keyword)}&page=${page}`,
-    keyword,
+    (page) => `${source.apiBase}/search?q=${encodeURIComponent(keyword)}&page=${page}`,
+    `${source.id}-${keyword}`,
   );
 
   return (

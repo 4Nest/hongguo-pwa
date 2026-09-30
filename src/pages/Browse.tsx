@@ -2,20 +2,20 @@ import { useParams } from "react-router-dom";
 import { MediaGrid } from "@/components/MediaGrid";
 import { usePagedItems } from "@/hooks/usePagedItems";
 import { Button } from "@/components/ui/button";
-
-const TITLES: Record<string, string> = { short: "短剧", comic: "漫剧" };
+import { useSource } from "@/lib/sources";
 
 export default function Browse() {
-  const { category = "short" } = useParams();
-  const safeCategory = TITLES[category] ? category : "short";
+  const { category = "" } = useParams();
+  const source = useSource();
+  const cat = source.categories.find((c) => c.id === category) ?? source.categories[0];
   const { items, hasMore, loading, initialLoaded, loadMore, sentinelRef } = usePagedItems(
-    (page) => `/api/hongguo/browse?category=${safeCategory}&page=${page}`,
-    safeCategory,
+    (page) => `${source.apiBase}/browse?category=${cat.id}&page=${page}`,
+    `${source.id}-${cat.id}`,
   );
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-semibold">{TITLES[safeCategory]}</h1>
+      <h1 className="mb-4 text-xl font-semibold">{cat.label}</h1>
       <MediaGrid items={items} loading={!initialLoaded || loading} />
       <div ref={sentinelRef} className="h-1" />
       {initialLoaded && !loading && items.length === 0 && (

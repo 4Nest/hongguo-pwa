@@ -149,9 +149,8 @@ hongguoRouter.get("/stream", async (req, res) => {
   }
 });
 
-// 海报图代理：手机只需连本站，避免第三方图床慢/中断导致的封面渲染异常
-const POSTER_HOSTS = ["byteimg.com", "baidu.com", "bdimg.com", "duanjubaike.net"];
-
+// 海报图代理：手机只需连本站，避免第三方图床慢/中断导致的封面渲染异常。
+// 黄果图床域名小时级漂移，无法枚举白名单；接口有 requireAuth 保护，放宽为任意 http(s)。
 hongguoRouter.get("/poster", async (req, res) => {
   let target: string;
   try {
@@ -159,14 +158,12 @@ hongguoRouter.get("/poster", async (req, res) => {
   } catch {
     return res.status(400).json({ error: "非法地址" });
   }
-  let host: string;
   try {
-    host = new URL(target).hostname;
+    const u = new URL(target);
+    if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error();
   } catch {
     return res.status(400).json({ error: "非法地址" });
   }
-  if (!POSTER_HOSTS.some((h) => host === h || host.endsWith(`.${h}`)))
-    return res.status(400).json({ error: "非法图床" });
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15_000);

@@ -2,20 +2,20 @@ import { useParams } from "react-router-dom";
 import { MediaGrid } from "@/components/MediaGrid";
 import { usePagedItems } from "@/hooks/usePagedItems";
 import { Button } from "@/components/ui/button";
-import { RANKS } from "@/components/Layout";
+import { useSource } from "@/lib/sources";
 
 export default function Rank() {
-  const { rankId = "short-hot" } = useParams();
-  const rank = RANKS.find((r) => r.id === rankId);
-  const safeRank = rank ? rank.id : "short-hot";
+  const { rankId = "" } = useParams();
+  const source = useSource();
+  const rank = source.ranks.find((r) => r.id === rankId) ?? source.ranks[0];
   const { items, hasMore, loading, initialLoaded, loadMore, sentinelRef } = usePagedItems(
-    (page) => `/api/hongguo/browse?category=rank&rank=${safeRank}&page=${page}`,
-    safeRank,
+    (page) => `${source.apiBase}/browse?category=rank&rank=${rank.id}&page=${page}`,
+    `${source.id}-rank-${rank.id}`,
   );
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-semibold">{rank?.label ?? "榜单"}</h1>
+      <h1 className="mb-4 text-xl font-semibold">{rank.label}</h1>
       <MediaGrid items={items} loading={!initialLoaded || loading} />
       <div ref={sentinelRef} className="h-1" />
       {initialLoaded && !loading && items.length === 0 && (

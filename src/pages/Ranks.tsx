@@ -4,16 +4,29 @@ import { ChevronRight } from "lucide-react";
 import { api, type MediaItem } from "@/lib/api";
 import { HScroll, MediaCard } from "@/components/MediaGrid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RANKS } from "@/components/Layout";
+import { useSource, type SourceConfig } from "@/lib/sources";
 
-function RankPreview({ rankId, label }: { rankId: string; label: string }) {
+function RankPreview({
+  source,
+  rankId,
+  label,
+}: {
+  source: SourceConfig;
+  rankId: string;
+  label: string;
+}) {
   const [items, setItems] = useState<MediaItem[] | null>(null);
 
   useEffect(() => {
-    api<{ items: MediaItem[] }>(`/api/hongguo/browse?category=rank&rank=${rankId}&page=1`)
-      .then((d) => setItems((d.items ?? []).slice(0, 10)))
+    setItems(null);
+    api<{ items: MediaItem[] }>(
+      `${source.apiBase}/browse?category=rank&rank=${rankId}&page=1`,
+    )
+      .then((d) =>
+        setItems((d.items ?? []).slice(0, 10).map((m) => ({ ...m, source: source.id }))),
+      )
       .catch(() => setItems([]));
-  }, [rankId]);
+  }, [source, rankId]);
 
   return (
     <section>
@@ -46,11 +59,12 @@ function RankPreview({ rankId, label }: { rankId: string; label: string }) {
 }
 
 export default function Ranks() {
+  const source = useSource();
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-semibold">榜单</h1>
-      {RANKS.map((r) => (
-        <RankPreview key={r.id} rankId={r.id} label={r.label} />
+      {source.ranks.map((r) => (
+        <RankPreview key={r.id} source={source} rankId={r.id} label={r.label} />
       ))}
     </div>
   );

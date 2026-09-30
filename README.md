@@ -21,6 +21,7 @@
 ```yaml
 # docker-compose.yml
 services:
+
   capy:
     image: cs920/happy-capy:latest
     restart: unless-stopped
@@ -59,6 +60,10 @@ docker run -d --name hongguo -p 8789:8789 \
   -v hongguo-data:/app/data \
   ghcr.io/4nest/hongguo-pwa:latest
 ```
+
+## 数据源
+
+默认红果短剧。管理员可在「管理面板 → 设置」开启**黄果源**（成人内容，通过 capy 的 `huangguo.js` widget 提供服务，媒体为 HLS，经本站代理转发）；开启后用户在「设置」页可自由切换红果/黄果，浏览记录与收藏按源独立。
 
 ## 账号体系
 

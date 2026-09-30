@@ -31,6 +31,7 @@ export default function Favorites() {
             id: f.itemId,
             title: f.title,
             posterUrl: f.posterUrl ?? "",
+            source: f.source ?? "hongguo",
             mediaType: f.mediaType ?? "tv",
             description: "",
             remark: f.remark ?? undefined,

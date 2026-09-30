@@ -340,6 +340,52 @@ function UsersTab() {
   );
 }
 
+function SettingsTab() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    api<{ huangguoEnabled: boolean }>("/api/admin/settings")
+      .then((d) => setEnabled(d.huangguoEnabled))
+      .catch(() => {});
+  }, []);
+
+  const toggle = async () => {
+    if (enabled === null || pending) return;
+    setPending(true);
+    try {
+      const d = await api<{ huangguoEnabled: boolean }>("/api/admin/settings", {
+        method: "PUT",
+        body: { huangguoEnabled: !enabled },
+      });
+      setEnabled(d.huangguoEnabled);
+      toast.success(d.huangguoEnabled ? "黄果源已开启" : "黄果源已关闭");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "操作失败");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="flex max-w-lg items-center justify-between rounded-md border p-4">
+      <div>
+        <p className="font-medium">黄果源</p>
+        <p className="text-sm text-muted-foreground">
+          开启后，用户可在「设置」页切换到黄果短剧（成人内容，请自行评估合规风险）
+        </p>
+      </div>
+      <Button
+        variant={enabled ? "default" : "outline"}
+        disabled={enabled === null || pending}
+        onClick={() => void toggle()}
+      >
+        {enabled ? "已开启" : "已关闭"}
+      </Button>
+    </div>
+  );
+}
+
 export default function Admin() {
   return (
     <div>
@@ -348,12 +394,16 @@ export default function Admin() {
         <TabsList>
           <TabsTrigger value="invites">邀请码</TabsTrigger>
           <TabsTrigger value="users">用户</TabsTrigger>
+          <TabsTrigger value="settings">设置</TabsTrigger>
         </TabsList>
         <TabsContent value="invites" className="mt-4">
           <InvitesTab />
         </TabsContent>
         <TabsContent value="users" className="mt-4">
           <UsersTab />
+        </TabsContent>
+        <TabsContent value="settings" className="mt-4">
+          <SettingsTab />
         </TabsContent>
       </Tabs>
     </div>

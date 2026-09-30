@@ -47,6 +47,45 @@ CREATE TABLE IF NOT EXISTS history (
 );
 `);
 
+// 全局设置（黄果源开关等）
+db.exec(`
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`);
+
+// 用户数据源偏好（hongguo|huangguo）
+try {
+  db.exec("ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'hongguo'");
+} catch {
+  // 列已存在
+}
+
+export function getSetting(key: string): string | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string) {
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
+}
+
+export function huangguoEnabled(): boolean {
+  return getSetting("huangguo_enabled") === "1";
+}
+
+// 收藏/历史记录数据源（黄果 id 是 URL，跨源必须记录来源）
+for (const table of ["favorites", "history"]) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN source TEXT NOT NULL DEFAULT 'hongguo'`);
+  } catch {
+    // 列已存在
+  }
+}
+
 // 首次启动：无 admin 则创建随机密码 admin，明文只打印一次并写入 data/admin-credentials.txt
 const adminRow = db
   .prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1")

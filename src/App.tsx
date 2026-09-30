@@ -13,6 +13,7 @@ import Player from "@/pages/Player";
 import Favorites from "@/pages/Favorites";
 import History from "@/pages/History";
 import Admin from "@/pages/Admin";
+import Settings from "@/pages/Settings";
 import type { ReactNode } from "react";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -46,9 +47,10 @@ export default function App() {
         <Route path="/rank/:rankId" element={<Rank />} />
         <Route path="/ranks" element={<Ranks />} />
         <Route path="/search" element={<Search />} />
-        <Route path="/detail/:id" element={<Detail />} />
+        <Route path="/detail/:source/:id" element={<Detail />} />
         <Route path="/favorites" element={<Favorites />} />
         <Route path="/history" element={<History />} />
+        <Route path="/settings" element={<Settings />} />
         <Route
           path="/admin"
           element={
@@ -59,7 +61,7 @@ export default function App() {
         />
       </Route>
       <Route
-        path="/play/:id/:episodeNumber"
+        path="/play/:source/:id/:episodeNumber"
         element={
           <RequireAuth>
             <Player />
