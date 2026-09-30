@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+.git
+.vite
+.DS_Store
+npm-debug.log
+*.local
+docker-compose.yml
+Dockerfile
