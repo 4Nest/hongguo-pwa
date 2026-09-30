@@ -120,7 +120,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
-      <header className="sticky top-0 z-40 border-b bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur">
+      <header className="sticky top-0 z-40 border-b bg-background/95 pt-[calc(env(safe-area-inset-top)+0.5rem)] backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           <Link to="/" className="flex items-center gap-1.5 font-bold text-red-500">
             <Clapperboard className="h-5 w-5" />

@@ -29,11 +29,10 @@ export default function Settings() {
     }
   };
 
-  const huangguoAvailable = user?.huangguoEnabled === true;
+  const huangguoAvailable = user?.huangguoAllowed === true;
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="mb-4 text-xl font-semibold">设置</h1>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

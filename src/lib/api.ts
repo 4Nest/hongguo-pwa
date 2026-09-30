@@ -40,6 +40,7 @@ export interface User {
   role: string;
   source?: string;
   huangguoEnabled?: boolean;
+  huangguoAllowed?: boolean;
 }
 
 export interface FavoriteItem {

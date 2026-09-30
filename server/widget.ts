@@ -1,12 +1,13 @@
 import vm from "node:vm";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR, UPSTREAM_URL } from "./config.ts";
+import { DATA_DIR } from "./config.ts";
+import { getUpstreamUrl } from "./db.ts";
 
 // 黄果 widget 是 capy 客户端脚本：用 vm 沙箱执行，桥接 Widget.http.get。
 // 脚本缓存到本地，启动时优先用缓存（capy 挂了也能跑），后台每天刷新一次。
 
-const WIDGET_URL = `${UPSTREAM_URL}/widgets/huangguo.js`;
+const widgetUrl = () => `${getUpstreamUrl()}/widgets/huangguo.js`;
 const CACHE_FILE = path.join(DATA_DIR, "huangguo-widget.js");
 const REFRESH_INTERVAL = 24 * 3600 * 1000;
 
@@ -66,7 +67,7 @@ function createSandbox(): WidgetContext {
 
 async function fetchWidgetCode(): Promise<string> {
   try {
-    const res = await fetch(WIDGET_URL, { signal: AbortSignal.timeout(15000) });
+    const res = await fetch(widgetUrl(), { signal: AbortSignal.timeout(15000) });
     if (res.ok) {
       const code = await res.text();
       if (code.includes("WidgetMetadata")) {
@@ -82,20 +83,33 @@ async function fetchWidgetCode(): Promise<string> {
   }
 }
 
+// 脚本内写死的 capy 地址替换为当前配置的上游
+function patchCode(code: string): string {
+  return code.replace(
+    /var CAPY_BACKEND_URL = "[^"]*";/,
+    `var CAPY_BACKEND_URL = ${JSON.stringify(getUpstreamUrl())};`,
+  );
+}
+
+/** 上游地址变更后调用：丢弃当前 context，下次调用时重建 */
+export function resetWidget() {
+  context = null;
+  loading = null;
+}
 async function getContext(): Promise<WidgetContext> {
   if (context) return context;
   if (!loading) {
     loading = (async () => {
       const code = await fetchWidgetCode();
       const ctx = createSandbox();
-      vm.runInContext(code, ctx, { filename: "huangguo.js" });
+      vm.runInContext(patchCode(code), ctx, { filename: "huangguo.js" });
       context = ctx;
       // 每日刷新 widget 脚本
       setInterval(async () => {
         try {
           const fresh = await fetchWidgetCode();
           const next = createSandbox();
-          vm.runInContext(fresh, next, { filename: "huangguo.js" });
+          vm.runInContext(patchCode(fresh), next, { filename: "huangguo.js" });
           context = next;
         } catch {
           // 刷新失败保留旧 context

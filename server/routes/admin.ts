@@ -1,8 +1,9 @@
 import { Router } from "express";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db, getSetting, setSetting } from "../db.ts";
+import { db, getSetting, setSetting, getUpstreamUrl } from "../db.ts";
 import { requireAdmin, type AuthedRequest } from "../auth.ts";
+import { resetWidget } from "../widget.ts";
 
 
 export const adminRouter = Router();
@@ -11,14 +12,31 @@ adminRouter.use(requireAdmin);
 // ---- 全局设置 ----
 
 adminRouter.get("/settings", (_req, res) => {
-  res.json({ huangguoEnabled: getSetting("huangguo_enabled") === "1" });
+  res.json({
+    huangguoEnabled: getSetting("huangguo_enabled") === "1",
+    upstreamUrl: getUpstreamUrl(),
+  });
 });
 
 adminRouter.put("/settings", (req, res) => {
-  const { huangguoEnabled } = req.body ?? {};
-  if (typeof huangguoEnabled !== "boolean") return res.status(400).json({ error: "参数不完整" });
-  setSetting("huangguo_enabled", huangguoEnabled ? "1" : "0");
-  res.json({ ok: true, huangguoEnabled });
+  const { huangguoEnabled, upstreamUrl } = req.body ?? {};
+  if (huangguoEnabled !== undefined) {
+    if (typeof huangguoEnabled !== "boolean")
+      return res.status(400).json({ error: "huangguoEnabled 须为布尔值" });
+    setSetting("huangguo_enabled", huangguoEnabled ? "1" : "0");
+  }
+  if (upstreamUrl !== undefined) {
+    if (typeof upstreamUrl !== "string" || !/^https?:\/\/\S+$/.test(upstreamUrl.trim()))
+      return res.status(400).json({ error: "上游地址须为 http(s) URL" });
+    setSetting("upstream_url", upstreamUrl.trim().replace(/\/$/, ""));
+    // 黄果 widget 脚本内写死了 capy 地址，重建沙箱
+    resetWidget();
+  }
+  res.json({
+    ok: true,
+    huangguoEnabled: getSetting("huangguo_enabled") === "1",
+    upstreamUrl: getUpstreamUrl(),
+  });
 });
 
 function genCode(): string {
@@ -71,13 +89,24 @@ adminRouter.delete("/invites/:code", (req, res) => {
 adminRouter.get("/users", (_req, res) => {
   const rows = db
     .prepare(
-      `SELECT u.id, u.username, u.role, u.created_at,
+      `SELECT u.id, u.username, u.role, u.created_at, u.huangguo_allowed,
         (SELECT COUNT(*) FROM favorites f WHERE f.user_id = u.id) AS favorite_count,
         (SELECT COUNT(*) FROM history h WHERE h.user_id = u.id) AS history_count
        FROM users u ORDER BY u.created_at ASC`,
     )
     .all();
   res.json({ users: rows });
+});
+
+// 单独设置某用户的黄果权限
+adminRouter.put("/users/:id/huangguo", (req, res) => {
+  const id = Number(req.params.id);
+  const { allowed } = req.body ?? {};
+  if (typeof allowed !== "boolean") return res.status(400).json({ error: "参数不完整" });
+  const target = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
+  if (!target) return res.status(404).json({ error: "用户不存在" });
+  db.prepare("UPDATE users SET huangguo_allowed = ? WHERE id = ?").run(allowed ? 1 : 0, id);
+  res.json({ ok: true, allowed });
 });
 
 adminRouter.delete("/users/:id", (req: AuthedRequest, res) => {

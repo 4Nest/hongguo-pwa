@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, huangguoEnabled } from "../db.ts";
+import { db, huangguoEnabled, userHuangguoAllowed } from "../db.ts";
 import { signToken, clearToken, requireAuth, type AuthedRequest } from "../auth.ts";
 
 export const authRouter = Router();
@@ -62,11 +62,11 @@ authRouter.get("/me", requireAuth, (req: AuthedRequest, res) => {
     | { id: number; username: string; role: string; source: string }
     | undefined;
   if (!user) return res.status(401).json({ error: "用户不存在" });
-  // 黄果被管理员关闭时，已切到黄果的用户回退红果
-  const enabled = huangguoEnabled();
-  if (user.source === "huangguo" && !enabled) {
+  // 黄果被关闭或该用户被单独禁用时，已切到黄果的用户回退红果
+  const allowed = userHuangguoAllowed(user.id);
+  if (user.source === "huangguo" && !allowed) {
     db.prepare("UPDATE users SET source = 'hongguo' WHERE id = ?").run(user.id);
     user.source = "hongguo";
   }
-  res.json({ ...user, huangguoEnabled: enabled });
+  res.json({ ...user, huangguoEnabled: huangguoEnabled(), huangguoAllowed: allowed });
 });

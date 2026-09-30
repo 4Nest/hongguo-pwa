@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, huangguoEnabled } from "../db.ts";
+import { db, userHuangguoAllowed } from "../db.ts";
 import { requireAuth, type AuthedRequest } from "../auth.ts";
 
 
@@ -12,8 +12,8 @@ meRouter.post("/source", (req: AuthedRequest, res) => {
   const { source } = req.body ?? {};
   if (source !== "hongguo" && source !== "huangguo")
     return res.status(400).json({ error: "非法数据源" });
-  if (source === "huangguo" && !huangguoEnabled())
-    return res.status(403).json({ error: "黄果源未开启" });
+  if (source === "huangguo" && !userHuangguoAllowed(req.user!.uid))
+    return res.status(403).json({ error: "黄果源未对你开放" });
   db.prepare("UPDATE users SET source = ? WHERE id = ?").run(source, req.user!.uid);
   res.json({ ok: true, source });
 });

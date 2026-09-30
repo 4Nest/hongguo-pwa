@@ -1,13 +1,14 @@
 import { Router, type Response } from "express";
 import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
-import { UPSTREAM_URL } from "./config.ts";
+import { getUpstreamUrl } from "./db.ts";
 import { requireAuth } from "./auth.ts";
 
 export const hongguoRouter = Router();
 hongguoRouter.use(requireAuth);
 
-const BASE = `${UPSTREAM_URL}/api/v1/providers/hongguo`;
+// 上游地址运行时从设置读取（管理面板可改）
+const providerBase = () => `${getUpstreamUrl()}/api/v1/providers/hongguo`;
 const CATEGORIES: Record<string, true> = { short: true, comic: true, rank: true };
 const RANKS: Record<string, true> = {
   "comic-new": true,
@@ -59,7 +60,7 @@ hongguoRouter.get("/browse", async (req, res) => {
   const category = String(req.query.category ?? "");
   const page = Math.max(1, Number(req.query.page) || 1);
   if (!CATEGORIES[category]) return res.status(400).json({ error: "非法分类" });
-  let url = `${BASE}/browse?category=${category}&page=${page}`;
+  let url = `${providerBase()}/browse?category=${category}&page=${page}`;
   if (category === "rank") {
     const rank = String(req.query.rank ?? "");
     if (!RANKS[rank]) return res.status(400).json({ error: "非法榜单" });
@@ -77,7 +78,7 @@ hongguoRouter.get("/search", async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   if (!q) return res.json({ items: [] });
   try {
-    res.json(await upstreamFetch(`${BASE}/search?q=${encodeURIComponent(q)}&page=${page}`));
+    res.json(await upstreamFetch(`${providerBase()}/search?q=${encodeURIComponent(q)}&page=${page}`));
   } catch {
     upstreamError(res);
   }
@@ -104,7 +105,7 @@ function rewriteStreamUrls(detail: unknown): unknown {
 
 hongguoRouter.get("/items/:id", async (req, res) => {
   try {
-    res.json(rewriteStreamUrls(await upstreamFetch(`${BASE}/items/${encodeURIComponent(req.params.id)}`)));
+    res.json(rewriteStreamUrls(await upstreamFetch(`${providerBase()}/items/${encodeURIComponent(req.params.id)}`)));
   } catch {
     upstreamError(res);
   }
@@ -118,8 +119,8 @@ hongguoRouter.get("/stream", async (req, res) => {
   } catch {
     return res.status(400).json({ error: "非法地址" });
   }
-  // 防开放代理：只允许转发到上游
-  if (!target.startsWith(UPSTREAM_URL)) return res.status(400).json({ error: "非法地址" });
+  // 防开放代理：只允许转发到当前配置的上游
+  if (!target.startsWith(getUpstreamUrl())) return res.status(400).json({ error: "非法地址" });
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30_000);

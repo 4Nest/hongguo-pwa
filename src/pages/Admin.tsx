@@ -39,6 +39,7 @@ interface AdminUser {
   created_at: number;
   favorite_count: number;
   history_count: number;
+  huangguo_allowed: number;
 }
 
 function InvitesTab() {
@@ -180,6 +181,19 @@ function UsersTab() {
     }
   };
 
+  const toggleHuangguo = async (u: AdminUser) => {
+    try {
+      await api(`/api/admin/users/${u.id}/huangguo`, {
+        method: "PUT",
+        body: { allowed: !u.huangguo_allowed },
+      });
+      toast.success(`${u.username} 黄果权限已${u.huangguo_allowed ? "关闭" : "开启"}`);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "操作失败");
+    }
+  };
+
   const addUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -222,6 +236,7 @@ function UsersTab() {
             <TableHead>注册时间</TableHead>
             <TableHead>收藏数</TableHead>
             <TableHead>历史数</TableHead>
+            <TableHead>黄果权限</TableHead>
             <TableHead className="w-20">操作</TableHead>
           </TableRow>
         </TableHeader>
@@ -235,6 +250,15 @@ function UsersTab() {
               <TableCell>{new Date(u.created_at).toLocaleString()}</TableCell>
               <TableCell>{u.favorite_count}</TableCell>
               <TableCell>{u.history_count}</TableCell>
+              <TableCell>
+                <Button
+                  variant={u.huangguo_allowed ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => void toggleHuangguo(u)}
+                >
+                  {u.huangguo_allowed ? "允许" : "禁止"}
+                </Button>
+              </TableCell>
               <TableCell>
                 <div className="flex gap-1">
                   <Button
@@ -342,11 +366,17 @@ function UsersTab() {
 
 function SettingsTab() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [upstream, setUpstream] = useState("");
+  const [savedUpstream, setSavedUpstream] = useState("");
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    api<{ huangguoEnabled: boolean }>("/api/admin/settings")
-      .then((d) => setEnabled(d.huangguoEnabled))
+    api<{ huangguoEnabled: boolean; upstreamUrl: string }>("/api/admin/settings")
+      .then((d) => {
+        setEnabled(d.huangguoEnabled);
+        setUpstream(d.upstreamUrl);
+        setSavedUpstream(d.upstreamUrl);
+      })
       .catch(() => {});
   }, []);
 
@@ -367,21 +397,62 @@ function SettingsTab() {
     }
   };
 
+  const saveUpstream = async () => {
+    const url = upstream.trim();
+    if (!url || url === savedUpstream || pending) return;
+    setPending(true);
+    try {
+      const d = await api<{ upstreamUrl: string }>("/api/admin/settings", {
+        method: "PUT",
+        body: { upstreamUrl: url },
+      });
+      setUpstream(d.upstreamUrl);
+      setSavedUpstream(d.upstreamUrl);
+      toast.success("上游地址已保存，即时生效");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "保存失败");
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
-    <div className="flex max-w-lg items-center justify-between rounded-md border p-4">
-      <div>
-        <p className="font-medium">黄果源</p>
-        <p className="text-sm text-muted-foreground">
-          开启后，用户可在「设置」页切换到黄果短剧（成人内容，请自行评估合规风险）
+    <div className="flex max-w-lg flex-col gap-4">
+      <div className="rounded-md border p-4">
+        <p className="font-medium">上游地址（Capy Backend）</p>
+        <p className="mb-3 text-sm text-muted-foreground">
+          红果与黄果的数据都来自该地址，修改后即时生效
         </p>
+        <div className="flex gap-2">
+          <Input
+            value={upstream}
+            onChange={(e) => setUpstream(e.target.value)}
+            placeholder="http://192.168.2.110:8788"
+            className="font-mono text-sm"
+          />
+          <Button
+            onClick={() => void saveUpstream()}
+            disabled={pending || !upstream.trim() || upstream.trim() === savedUpstream}
+          >
+            保存
+          </Button>
+        </div>
       </div>
-      <Button
-        variant={enabled ? "default" : "outline"}
-        disabled={enabled === null || pending}
-        onClick={() => void toggle()}
-      >
-        {enabled ? "已开启" : "已关闭"}
-      </Button>
+      <div className="flex items-center justify-between rounded-md border p-4">
+        <div>
+          <p className="font-medium">黄果源</p>
+          <p className="text-sm text-muted-foreground">
+            开启后，用户可在「设置」页切换到黄果短剧（成人内容，请自行评估合规风险）
+          </p>
+        </div>
+        <Button
+          variant={enabled ? "default" : "outline"}
+          disabled={enabled === null || pending}
+          onClick={() => void toggle()}
+        >
+          {enabled ? "已开启" : "已关闭"}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config.ts";
+import { DATA_DIR, DEFAULT_UPSTREAM_URL } from "./config.ts";
 
 export const db = new Database(path.join(DATA_DIR, "app.db"));
 db.pragma("journal_mode = WAL");
@@ -77,6 +77,11 @@ export function huangguoEnabled(): boolean {
   return getSetting("huangguo_enabled") === "1";
 }
 
+/** 上游 Capy Backend 地址：管理面板可改，默认取 env 或内置值 */
+export function getUpstreamUrl(): string {
+  return getSetting("upstream_url") ?? DEFAULT_UPSTREAM_URL;
+}
+
 // 收藏/历史记录数据源（黄果 id 是 URL，跨源必须记录来源）
 for (const table of ["favorites", "history"]) {
   try {
@@ -84,6 +89,22 @@ for (const table of ["favorites", "history"]) {
   } catch {
     // 列已存在
   }
+}
+
+// 每用户黄果权限（1=允许，默认允许；管理员可单独关闭）
+try {
+  db.exec("ALTER TABLE users ADD COLUMN huangguo_allowed INTEGER NOT NULL DEFAULT 1");
+} catch {
+  // 列已存在
+}
+
+/** 该用户实际能否使用黄果：全局开 且 未被单独禁用 */
+export function userHuangguoAllowed(uid: number): boolean {
+  if (!huangguoEnabled()) return false;
+  const row = db.prepare("SELECT huangguo_allowed FROM users WHERE id = ?").get(uid) as
+    | { huangguo_allowed: number }
+    | undefined;
+  return row?.huangguo_allowed === 1;
 }
 
 // 首次启动：无 admin 则创建随机密码 admin，明文只打印一次并写入 data/admin-credentials.txt

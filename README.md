@@ -63,7 +63,7 @@ docker run -d --name hongguo -p 8789:8789 \
 
 ## 数据源
 
-默认红果短剧。管理员可在「管理面板 → 设置」开启**黄果源**（成人内容，通过 capy 的 `huangguo.js` widget 提供服务，媒体为 HLS，经本站代理转发）；开启后用户在「设置」页可自由切换红果/黄果，浏览记录与收藏按源独立。
+支持多数据源，用户可在「设置」页切换；管理员在「管理面板 → 设置」中配置上游 Capy Backend 地址与各数据源开关，修改即时生效。
 
 ## 账号体系
 
@@ -78,7 +78,7 @@ docker run -d --name hongguo -p 8789:8789 \
 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `PORT` | `8789` | 服务端口 |
-| `UPSTREAM_URL` | `http://192.168.2.110:8788` | Capy Backend 地址（compose 内为 `http://capy:8788`） |
+| `UPSTREAM_URL` | `http://192.168.2.110:8788` | Capy Backend 初始地址；之后以「管理面板 → 设置」里的值为准（存数据库） |
 | `DATA_DIR` | `./data`（容器内 `/app/data`） | SQLite、JWT 密钥、admin 凭证所在目录 |
 | `JWT_SECRET` | 自动生成并持久化 | JWT 签名密钥，一般无需设置 |
 

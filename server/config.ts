@@ -3,7 +3,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 export const PORT = Number(process.env.PORT || 8789);
-export const UPSTREAM_URL = (
+// 上游默认值：仅作为 settings 表未配置时的初始值；运行时以后台设置为准
+export const DEFAULT_UPSTREAM_URL = (
   process.env.UPSTREAM_URL || "http://192.168.2.110:8788"
 ).replace(/\/$/, "");
 export const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");

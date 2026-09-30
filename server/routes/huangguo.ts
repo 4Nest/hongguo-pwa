@@ -1,15 +1,16 @@
 import { Router } from "express";
 import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
-import { huangguoEnabled } from "../db.ts";
-import { requireAuth } from "../auth.ts";
+import { userHuangguoAllowed } from "../db.ts";
+import { requireAuth, type AuthedRequest } from "../auth.ts";
 import { callWidget } from "../widget.ts";
 
 export const huangguoRouter = Router();
 
-// 黄果源需管理员开启
-huangguoRouter.use(requireAuth, (_req, res, next) => {
-  if (!huangguoEnabled()) return res.status(403).json({ error: "黄果源未开启" });
+// 黄果源需管理员开启且该用户被授权
+huangguoRouter.use(requireAuth, (req: AuthedRequest, res, next) => {
+  if (!userHuangguoAllowed(req.user!.uid))
+    return res.status(403).json({ error: "黄果源未对你开放" });
   next();
 });
 

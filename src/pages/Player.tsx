@@ -57,7 +57,7 @@ export default function Player() {
   }
 
   return (
-    <div className="min-h-screen bg-background pt-[env(safe-area-inset-top)]">
+    <div className="min-h-screen bg-background pt-[calc(env(safe-area-inset-top)+0.75rem)]">
       <div className="mx-auto max-w-7xl p-3 sm:p-4">
         <Button variant="ghost" size="sm" className="mb-2" onClick={() => navigate(`/detail/${source.id}/${encodeURIComponent(id)}`)}>
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回详情

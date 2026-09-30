@@ -145,21 +145,6 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt, sourc
     videoRef.current?.play().catch(() => {});
   }, [episode.id]);
 
-  // Media Session
-  useEffect(() => {
-    if (!("mediaSession" in navigator)) return;
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: `${detail.title} 第${episode.episodeNumber}集`,
-      artist: "红果短剧",
-      artwork: detail.posterUrl ? [{ src: detail.posterUrl, sizes: "512x512" }] : [],
-    });
-    navigator.mediaSession.setActionHandler("previoustrack", prev ? () => goEpisode(prev) : null);
-    navigator.mediaSession.setActionHandler("nexttrack", next ? () => goEpisode(next) : null);
-    return () => {
-      navigator.mediaSession.setActionHandler("previoustrack", null);
-      navigator.mediaSession.setActionHandler("nexttrack", null);
-    };
-  }, [detail, episode, prev, next, goEpisode]);
 
   const fullscreen = () => {
     const video = videoRef.current;
