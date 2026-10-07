@@ -1,19 +1,23 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, userHuangguoAllowed } from "../db.ts";
+import { db } from "../db.ts";
+import { canUseSource, normalizeSource, visibleSources } from "../sources.ts";
 import { requireAuth, type AuthedRequest } from "../auth.ts";
 
 
 export const meRouter = Router();
 meRouter.use(requireAuth);
 
-// 切换数据源（红果/黄果）；黄果需管理员开启
+// 当前用户可见的数据源列表（内置红果 + 已启用的扩展源）
+meRouter.get("/sources", (req: AuthedRequest, res) => {
+  res.json({ sources: visibleSources(req.user!.uid) });
+});
+
+// 切换数据源；扩展源需已启用且有权限
 meRouter.post("/source", (req: AuthedRequest, res) => {
   const { source } = req.body ?? {};
-  if (source !== "hongguo" && source !== "huangguo")
-    return res.status(400).json({ error: "非法数据源" });
-  if (source === "huangguo" && !userHuangguoAllowed(req.user!.uid))
-    return res.status(403).json({ error: "黄果源未对你开放" });
+  if (typeof source !== "string" || !canUseSource(req.user!.uid, source))
+    return res.status(400).json({ error: "非法数据源或未对你开放" });
   db.prepare("UPDATE users SET source = ? WHERE id = ?").run(source, req.user!.uid);
   res.json({ ok: true, source });
 });
@@ -42,7 +46,7 @@ meRouter.post("/favorites", (req: AuthedRequest, res) => {
     typeof posterUrl === "string" ? posterUrl : null,
     typeof remark === "string" ? remark : null,
     typeof mediaType === "string" ? mediaType : null,
-    source === "huangguo" ? "huangguo" : "hongguo",
+    normalizeSource(req.user!.uid, source),
     Date.now(),
   );
   res.json({ ok: true });
@@ -82,7 +86,7 @@ meRouter.post("/history", (req: AuthedRequest, res) => {
     typeof episodeId === "string" ? episodeId : null,
     typeof episodeNumber === "number" ? episodeNumber : null,
     typeof positionSec === "number" ? positionSec : null,
-    source === "huangguo" ? "huangguo" : "hongguo",
+    normalizeSource(req.user!.uid, source),
     Date.now(),
   );
   res.json({ ok: true });

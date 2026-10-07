@@ -99,13 +99,11 @@ async function fetchRecommendations(source: SourceConfig): Promise<MediaItem[]> 
 
   if (seed?.title) {
     const kw = seed.title.replace(/[，。：！？、\s《》「」·-].*$/, "").slice(0, 2) || seed.title;
-    // 同分类热门补充（黄果用「推荐」分类）
+    // 同分类热门补充：收藏的是漫剧则优先漫剧分类，否则用源的首个分类
     const category =
-      source.id === "huangguo"
-        ? "recommend"
-        : latestFav?.mediaType === "comic"
-          ? "comic"
-          : "short";
+      latestFav?.mediaType === "comic"
+        ? (source.categories.find((c) => /comic|漫/.test(c.id + c.label))?.id ?? source.hotRank)
+        : source.hotRank;
     // 搜索与热门并行：上游搜索可能很慢，不串行拖累
     const [searched, browse] = await Promise.all([
       api<{ items: MediaItem[] }>(
@@ -118,8 +116,12 @@ async function fetchRecommendations(source: SourceConfig): Promise<MediaItem[]> 
     push(searched.items ?? []);
     push(browse.items ?? []);
   } else {
+    // 无互动时回退到热播榜（hotRank 是榜单 id 则走 rank，否则是分类 id）
+    const isRank = source.ranks.some((r) => r.id === source.hotRank);
     const hot = await api<{ items: MediaItem[] }>(
-      `${source.apiBase}/browse?category=rank&rank=${source.hotRank}&page=1`,
+      isRank
+        ? `${source.apiBase}/browse?category=rank&rank=${source.hotRank}&page=1`
+        : `${source.apiBase}/browse?category=${source.hotRank}&page=1`,
     ).catch(() => ({ items: [] }));
     push(hot.items ?? []);
   }

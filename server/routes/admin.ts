@@ -1,9 +1,20 @@
 import { Router } from "express";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db, getSetting, setSetting, getUpstreamUrl } from "../db.ts";
+import {
+  db,
+  getSetting,
+  setSetting,
+  getUpstreamUrl,
+  listWidgetSources,
+  getWidgetSource,
+  upsertWidgetSource,
+  deleteWidgetSource,
+  setUserSourceAccess,
+  userSourceAllowed,
+} from "../db.ts";
 import { requireAdmin, type AuthedRequest } from "../auth.ts";
-import { resetWidget } from "../widget.ts";
+import { resetWidget, fetchWidgetMeta } from "../widget.ts";
 
 
 export const adminRouter = Router();
@@ -24,19 +35,95 @@ adminRouter.put("/settings", (req, res) => {
     if (typeof huangguoEnabled !== "boolean")
       return res.status(400).json({ error: "huangguoEnabled 须为布尔值" });
     setSetting("huangguo_enabled", huangguoEnabled ? "1" : "0");
+    // 同步到迁移后的 huangguo 来源开关
+    const hg = getWidgetSource("huangguo");
+    if (hg) upsertWidgetSource({ ...hg, enabled: huangguoEnabled ? 1 : 0 });
   }
   if (upstreamUrl !== undefined) {
     if (typeof upstreamUrl !== "string" || !/^https?:\/\/\S+$/.test(upstreamUrl.trim()))
       return res.status(400).json({ error: "上游地址须为 http(s) URL" });
     setSetting("upstream_url", upstreamUrl.trim().replace(/\/$/, ""));
-    // 黄果 widget 脚本内写死了 capy 地址，重建沙箱
-    resetWidget();
+    // 内置红果源直接读设置；迁移的 huangguo 来源地址如仍是默认推导值则跟随更新
+    const hg = getWidgetSource("huangguo");
+    if (hg && /\/widgets\/huangguo\.js$/.test(hg.url)) {
+      upsertWidgetSource({ ...hg, url: `${getUpstreamUrl()}/widgets/huangguo.js` });
+      resetWidget("huangguo");
+    }
   }
   res.json({
     ok: true,
     huangguoEnabled: getSetting("huangguo_enabled") === "1",
     upstreamUrl: getUpstreamUrl(),
   });
+});
+
+// ---- 来源管理（粘贴 Capy 页面的 widget 链接即可添加） ----
+
+adminRouter.get("/sources", (_req, res) => {
+  res.json({ sources: listWidgetSources() });
+});
+
+adminRouter.post("/sources", async (req, res) => {
+  const { url, nsfw } = req.body ?? {};
+  if (typeof url !== "string" || !/^https?:\/\/\S+$/.test(url.trim()))
+    return res.status(400).json({ error: "来源须为 http(s) URL" });
+  const clean = url.trim();
+  if (listWidgetSources().some((s) => s.url === clean))
+    return res.status(400).json({ error: "该来源已存在" });
+  let meta;
+  try {
+    meta = await fetchWidgetMeta(clean);
+  } catch (err) {
+    return res.status(400).json({
+      error: `无法获取来源信息：${err instanceof Error ? err.message : "网络错误"}`,
+    });
+  }
+  // id 取 URL 文件名（/widgets/dsd.js → dsd），冲突加后缀
+  const base =
+    (clean.match(/\/([^/?]+)\.js(?:\?|$)/)?.[1] ?? "source")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "") || "source";
+  let id = base;
+  for (let i = 2; getWidgetSource(id); i++) id = `${base}-${i}`;
+  // 默认对全部用户开放；成人内容添加后在列表里打开「成人」标记
+  upsertWidgetSource({
+    id,
+    url: clean,
+    label: meta.label,
+    enabled: 1,
+    nsfw: nsfw === true ? 1 : 0,
+    meta: JSON.stringify(meta),
+  });
+  resetWidget(id);
+  res.json({ ok: true, source: getWidgetSource(id) });
+});
+
+adminRouter.put("/sources/:id", (req, res) => {
+  const source = getWidgetSource(req.params.id);
+  if (!source) return res.status(404).json({ error: "来源不存在" });
+  const { enabled, label, nsfw } = req.body ?? {};
+  if (enabled !== undefined && typeof enabled !== "boolean")
+    return res.status(400).json({ error: "enabled 须为布尔值" });
+  if (nsfw !== undefined && typeof nsfw !== "boolean")
+    return res.status(400).json({ error: "nsfw 须为布尔值" });
+  if (label !== undefined && (typeof label !== "string" || !label.trim()))
+    return res.status(400).json({ error: "名称不能为空" });
+  upsertWidgetSource({
+    ...source,
+    label: label?.trim() ?? source.label,
+    enabled: enabled === undefined ? source.enabled : enabled ? 1 : 0,
+    nsfw: nsfw === undefined ? source.nsfw : nsfw ? 1 : 0,
+  });
+  if (label !== undefined) resetWidget(source.id);
+  res.json({ ok: true, source: getWidgetSource(source.id) });
+});
+
+adminRouter.delete("/sources/:id", (req, res) => {
+  const source = getWidgetSource(req.params.id);
+  if (!source) return res.status(404).json({ error: "来源不存在" });
+  deleteWidgetSource(source.id);
+  resetWidget(source.id);
+  res.json({ ok: true });
 });
 
 function genCode(): string {
@@ -103,14 +190,32 @@ adminRouter.get("/users", (_req, res) => {
   res.json({ users: rows });
 });
 
-// 单独设置某用户的黄果权限
-adminRouter.put("/users/:id/huangguo", (req, res) => {
+// 某用户的每源授权列表（effective = 显式设置优先，默认 admin 全通/非成人开放）
+adminRouter.get("/users/:id/sources", (req, res) => {
+  const id = Number(req.params.id);
+  const target = db.prepare("SELECT id, role FROM users WHERE id = ?").get(id) as
+    | { id: number; role: string }
+    | undefined;
+  if (!target) return res.status(404).json({ error: "用户不存在" });
+  const rows = listWidgetSources().map((s) => ({
+    id: s.id,
+    label: s.label,
+    nsfw: s.nsfw === 1,
+    enabled: s.enabled === 1,
+    allowed: userSourceAllowed(id, s.id, s.nsfw),
+  }));
+  res.json({ sources: rows });
+});
+
+// 设置某用户对某源的授权
+adminRouter.put("/users/:id/sources/:sid", (req, res) => {
   const id = Number(req.params.id);
   const { allowed } = req.body ?? {};
   if (typeof allowed !== "boolean") return res.status(400).json({ error: "参数不完整" });
   const target = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
   if (!target) return res.status(404).json({ error: "用户不存在" });
-  db.prepare("UPDATE users SET huangguo_allowed = ? WHERE id = ?").run(allowed ? 1 : 0, id);
+  if (!getWidgetSource(req.params.sid)) return res.status(404).json({ error: "来源不存在" });
+  setUserSourceAccess(id, req.params.sid, allowed);
   res.json({ ok: true, allowed });
 });
 

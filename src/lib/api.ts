@@ -67,7 +67,7 @@ export interface HistoryItem {
 /** 海报统一走本站代理：手机只连局域网本站，避开第三方图床慢/中断 */
 export function posterSrc(url: string | null | undefined): string {
   if (!url) return "";
-  return `/api/hongguo/poster?u=${encodeURIComponent(url)}`;
+  return `/api/poster?u=${encodeURIComponent(url)}`;
 }
 
 export class ApiError extends Error {

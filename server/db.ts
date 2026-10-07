@@ -77,9 +77,120 @@ export function huangguoEnabled(): boolean {
   return getSetting("huangguo_enabled") === "1";
 }
 
-/** 上游 Capy Backend 地址：管理面板可改，默认取 env 或内置值 */
+/** 上游 Capy Backend 地址：管理面板可改，默认取 env 或内置值（内置红果源使用） */
 export function getUpstreamUrl(): string {
   return getSetting("upstream_url") ?? DEFAULT_UPSTREAM_URL;
+}
+
+// ---- widget 来源（粘贴 Capy 页面的 widget 链接即可添加的扩展源）----
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS widget_sources (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  nsfw INTEGER NOT NULL DEFAULT 1,
+  meta TEXT,
+  created_at INTEGER NOT NULL
+);
+`);
+
+// nsfw 列（1=成人内容，需用户被授权才能用；老库补充）
+try {
+  db.exec("ALTER TABLE widget_sources ADD COLUMN nsfw INTEGER NOT NULL DEFAULT 1");
+} catch {
+  // 列已存在
+}
+
+// 每用户 × 每源授权（无记录时按默认策略：非成人源开放、成人源仅 admin）
+db.exec(`
+CREATE TABLE IF NOT EXISTS user_source_access (
+  user_id INTEGER NOT NULL,
+  source_id TEXT NOT NULL,
+  allowed INTEGER NOT NULL,
+  PRIMARY KEY (user_id, source_id)
+);
+`);
+
+export function setUserSourceAccess(uid: number, sourceId: string, allowed: boolean) {
+  db.prepare(
+    "INSERT OR REPLACE INTO user_source_access (user_id, source_id, allowed) VALUES (?, ?, ?)",
+  ).run(uid, sourceId, allowed ? 1 : 0);
+}
+
+/** 该用户能否使用某源：显式设置优先；默认 admin 全通、非成人源开放、成人源拒绝 */
+export function userSourceAllowed(uid: number, sourceId: string, nsfw: number): boolean {
+  const row = db
+    .prepare(
+      `SELECT u.role, a.allowed FROM users u
+       LEFT JOIN user_source_access a ON a.user_id = u.id AND a.source_id = ?
+       WHERE u.id = ?`,
+    )
+    .get(sourceId, uid) as { role: string; allowed: number | null } | undefined;
+  if (!row) return false;
+  if (row.allowed !== null) return row.allowed === 1;
+  if (row.role === "admin") return true;
+  return nsfw !== 1;
+}
+
+export interface WidgetSource {
+  id: string;
+  url: string;
+  label: string;
+  enabled: number;
+  nsfw: number;
+  meta: string | null;
+  created_at: number;
+}
+
+export function listWidgetSources(): WidgetSource[] {
+  return db
+    .prepare("SELECT * FROM widget_sources ORDER BY nsfw ASC, created_at ASC")
+    .all() as WidgetSource[];
+}
+
+export function getWidgetSource(id: string): WidgetSource | undefined {
+  return db.prepare("SELECT * FROM widget_sources WHERE id = ?").get(id) as
+    | WidgetSource
+    | undefined;
+}
+
+export function upsertWidgetSource(s: {
+  id: string;
+  url: string;
+  label: string;
+  enabled?: number;
+  nsfw?: number;
+  meta?: string | null;
+}) {
+  db.prepare(
+    `INSERT INTO widget_sources (id, url, label, enabled, nsfw, meta, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET url=excluded.url, label=excluded.label,
+       enabled=COALESCE(excluded.enabled, widget_sources.enabled),
+       nsfw=COALESCE(excluded.nsfw, widget_sources.nsfw),
+       meta=COALESCE(excluded.meta, widget_sources.meta)`,
+  ).run(s.id, s.url, s.label, s.enabled ?? 1, s.nsfw ?? 1, s.meta ?? null, Date.now());
+}
+
+export function deleteWidgetSource(id: string) {
+  db.prepare("DELETE FROM widget_sources WHERE id = ?").run(id);
+}
+
+export function updateWidgetSourceMeta(id: string, meta: unknown) {
+  db.prepare("UPDATE widget_sources SET meta = ? WHERE id = ?").run(JSON.stringify(meta), id);
+}
+
+// 迁移：空表时把旧「自定义上游地址 + 黄果开关」变成第一条来源（…/widgets/huangguo.js）
+if (listWidgetSources().length === 0) {
+  upsertWidgetSource({
+    id: "huangguo",
+    url: `${getUpstreamUrl()}/widgets/huangguo.js`,
+    label: "黄果短剧",
+    enabled: huangguoEnabled() ? 1 : 0,
+    nsfw: 1,
+  });
 }
 
 // 收藏/历史记录数据源（黄果 id 是 URL，跨源必须记录来源）
@@ -98,9 +209,8 @@ try {
   // 列已存在
 }
 
-/** 该用户实际能否使用黄果：全局开 且 未被单独禁用 */
-export function userHuangguoAllowed(uid: number): boolean {
-  if (!huangguoEnabled()) return false;
+/** 该用户是否被授权使用成人内容源（仅看按用户开关；源是否需授权由 nsfw 列决定） */
+export function userNsfwAllowed(uid: number): boolean {
   const row = db.prepare("SELECT huangguo_allowed FROM users WHERE id = ?").get(uid) as
     | { huangguo_allowed: number }
     | undefined;

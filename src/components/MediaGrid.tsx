@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 export function MediaCard({ item }: { item: MediaItem }) {
   const current = useSource();
-  const source = item.source === "huangguo" ? "huangguo" : (item.source ?? current.id);
+  const source = item.source ?? current.id;
   return (
     <Link to={`/detail/${source}/${encodeURIComponent(item.id)}`} className="group block">
       <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-muted">

@@ -1,39 +1,23 @@
 import { Router } from "express";
 import { Readable } from "node:stream";
 import type { ReadableStream } from "node:stream/web";
-import { userHuangguoAllowed } from "../db.ts";
+import { getWidgetSource, userSourceAllowed, updateWidgetSourceMeta, type WidgetSource } from "../db.ts";
 import { requireAuth, type AuthedRequest } from "../auth.ts";
-import { callWidget } from "../widget.ts";
+import { callWidget, fetchWidgetMeta, type WidgetMeta } from "../widget.ts";
 
-export const huangguoRouter = Router();
-
-// 黄果源需管理员开启且该用户被授权
-huangguoRouter.use(requireAuth, (req: AuthedRequest, res, next) => {
-  if (!userHuangguoAllowed(req.user!.uid))
-    return res.status(403).json({ error: "黄果源未对你开放" });
-  next();
-});
+export const widgetsRouter = Router();
 
 const WIDGET_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
-
-// category → widget 函数
-const CATEGORY_FN: Record<string, string> = {
-  recommend: "loadRecommend",
-  newest: "loadNewest",
-  duanju: "loadAiDuanju",
-  manju: "loadAiManju",
-  huanlian: "loadAiHuanlian",
-  mogai: "loadAiMogai",
-};
-const RANKS: Record<string, true> = { hot: true, recommend: true, potential: true };
 
 interface WidgetListItem {
   id?: string;
   title?: string;
   description?: string;
   posterPath?: string;
+  posterUrl?: string;
   durationText?: string;
+  remark?: string;
   mediaType?: string;
   link?: string;
   detailUrl?: string;
@@ -44,6 +28,7 @@ interface WidgetEpisode {
   title?: string;
   episodeNumber?: number;
   url?: string;
+  videoUrl?: string;
 }
 
 interface WidgetDetail {
@@ -51,6 +36,7 @@ interface WidgetDetail {
   title?: string;
   description?: string;
   posterPath?: string;
+  posterUrl?: string;
   mediaType?: string;
   seasons?: {
     name?: string;
@@ -59,6 +45,34 @@ interface WidgetDetail {
     episodes?: WidgetEpisode[];
   }[];
 }
+
+// ---- 来源解析 + 权限中间件 ----
+
+interface WidgetRequest extends AuthedRequest {
+  widgetSource?: WidgetSource;
+  widgetMeta?: WidgetMeta;
+}
+
+widgetsRouter.use("/:wid", requireAuth, async (req: WidgetRequest, res, next) => {
+  const source = getWidgetSource(req.params.wid);
+  if (!source || !source.enabled) return res.status(404).json({ error: "来源不存在或未启用" });
+  // 每用户 × 每源授权
+  if (!userSourceAllowed(req.user!.uid, source.id, source.nsfw))
+    return res.status(403).json({ error: "该来源未对你开放" });
+  let meta: WidgetMeta | null = source.meta ? JSON.parse(source.meta) : null;
+  if (!meta) {
+    // 迁移的旧来源可能没 meta，惰性补一次
+    try {
+      meta = await fetchWidgetMeta(source.url);
+      updateWidgetSourceMeta(source.id, meta);
+    } catch {
+      meta = { label: source.label, categories: [], searchFn: null, ranks: [] };
+    }
+  }
+  req.widgetSource = source;
+  req.widgetMeta = meta;
+  next();
+});
 
 function toMediaItems(raw: unknown): Record<string, unknown>[] {
   // widget 列表函数返回数组或 {items: []}
@@ -72,73 +86,79 @@ function toMediaItems(raw: unknown): Record<string, unknown>[] {
       id,
       title: it.title,
       mediaType: it.mediaType ?? "tv",
-      posterUrl: it.posterPath ?? "",
+      posterUrl: it.posterUrl ?? it.posterPath ?? "",
       description: it.description ?? "",
-      remark: it.durationText ?? "",
+      remark: it.remark ?? it.durationText ?? "",
     });
   }
   return out;
 }
 
-function wrapStream(url: string): string {
-  return `/api/huangguo/stream?u=${encodeURIComponent(url)}`;
-}
+const wrapStream = (wid: string, url: string) =>
+  `/api/widgets/${wid}/stream?u=${encodeURIComponent(url)}`;
 
-huangguoRouter.get("/browse", async (req, res) => {
+widgetsRouter.get("/:wid/browse", async (req: WidgetRequest, res) => {
+  const meta = req.widgetMeta!;
+  const wid = req.widgetSource!.id;
   const category = String(req.query.category ?? "");
   const page = String(Math.max(1, Number(req.query.page) || 1));
   try {
     if (category === "rank") {
       const rank = String(req.query.rank ?? "");
-      if (!RANKS[rank]) return res.status(400).json({ error: "非法榜单" });
-      const raw = await callWidget("loadRanking", { ranking: rank, page });
+      if (!meta.ranks.some((r) => r.id === rank))
+        return res.status(400).json({ error: "非法榜单" });
+      const raw = await callWidget(wid, "loadRanking", { ranking: rank, page });
       return res.json({ items: toMediaItems(raw) });
     }
-    const fn = CATEGORY_FN[category];
-    if (!fn) return res.status(400).json({ error: "非法分类" });
-    const params: Record<string, unknown> = { page };
-    if (["duanju", "manju", "huanlian", "mogai"].includes(category)) params.channel = "latest";
-    const raw = await callWidget(fn, params);
+    const cat = meta.categories.find((c) => c.id === category);
+    if (!cat) return res.status(400).json({ error: "非法分类" });
+    const raw = await callWidget(wid, cat.fn, { ...cat.consts, page });
     res.json({ items: toMediaItems(raw) });
   } catch {
     res.status(502).json({ error: "上游服务不可用" });
   }
 });
 
-huangguoRouter.get("/search", async (req, res) => {
+widgetsRouter.get("/:wid/search", async (req: WidgetRequest, res) => {
+  const meta = req.widgetMeta!;
+  const wid = req.widgetSource!.id;
   const q = String(req.query.q ?? "").trim();
   const page = String(Math.max(1, Number(req.query.page) || 1));
-  if (!q) return res.json({ items: [] });
+  if (!q || !meta.searchFn) return res.json({ items: [] });
   try {
-    const raw = await callWidget("searchVideos", { keyword: q, page });
+    const raw = await callWidget(wid, meta.searchFn, { keyword: q, page });
     res.json({ items: toMediaItems(raw) });
   } catch {
     res.status(502).json({ error: "上游服务不可用" });
   }
 });
 
-huangguoRouter.get("/items/:id", async (req, res) => {
+widgetsRouter.get("/:wid/items/:id", async (req: WidgetRequest, res) => {
+  const wid = req.widgetSource!.id;
   try {
     const link = decodeURIComponent(req.params.id);
-    const d = await callWidget<WidgetDetail>("loadDetail", link);
+    const d = await callWidget<WidgetDetail>(wid, "loadDetail", link);
     const seasons = (d.seasons ?? []).map((s, si) => ({
       id: `season-${si + 1}`,
       title: s.title ?? s.name ?? `第${si + 1}季`,
       seasonNumber: s.seasonNumber ?? si + 1,
-      episodes: (s.episodes ?? []).map((e, ei) => ({
-        id: e.id ?? `ep-${ei + 1}`,
-        title: e.title ?? `第${ei + 1}集`,
-        episodeNumber: e.episodeNumber ?? ei + 1,
-        // 媒体地址统一走本站代理（m3u8 需重写 playlist，且外站无 CORS）
-        streamUrl: e.url ? wrapStream(e.url) : "",
-      })),
+      episodes: (s.episodes ?? []).map((e, ei) => {
+        const url = e.url ?? e.videoUrl ?? "";
+        return {
+          id: e.id ?? `ep-${ei + 1}`,
+          title: e.title ?? `第${ei + 1}集`,
+          episodeNumber: e.episodeNumber ?? ei + 1,
+          // 媒体地址统一走本站代理（m3u8 需重写 playlist，且外站无 CORS）
+          streamUrl: url ? wrapStream(wid, url) : "",
+        };
+      }),
     }));
     const episodeCount = seasons.reduce((n, s) => n + s.episodes.length, 0);
     res.json({
       id: req.params.id,
-      title: d.title ?? "黄果短剧",
+      title: d.title ?? req.widgetSource!.label,
       mediaType: d.mediaType ?? "tv",
-      posterUrl: d.posterPath ?? "",
+      posterUrl: d.posterUrl ?? d.posterPath ?? "",
       description: d.description ?? "",
       seasonCount: seasons.length,
       episodeCount,
@@ -150,10 +170,10 @@ huangguoRouter.get("/items/:id", async (req, res) => {
 });
 
 // m3u8 playlist：重写其中所有分片/子流地址为本站代理
-function rewritePlaylist(text: string, base: URL): string {
+function rewritePlaylist(text: string, base: URL, wid: string): string {
   const wrap = (uri: string) => {
     try {
-      return wrapStream(new URL(uri, base).href);
+      return wrapStream(wid, new URL(uri, base).href);
     } catch {
       return uri;
     }
@@ -173,7 +193,8 @@ function rewritePlaylist(text: string, base: URL): string {
 }
 
 // 媒体流代理：mp4 Range 透传；m3u8 拉取重写
-huangguoRouter.get("/stream", async (req, res) => {
+widgetsRouter.get("/:wid/stream", async (req: WidgetRequest, res) => {
+  const wid = req.widgetSource!.id;
   let target: string;
   try {
     target = decodeURIComponent(String(req.query.u ?? ""));
@@ -196,7 +217,7 @@ huangguoRouter.get("/stream", async (req, res) => {
       const text = await up.text();
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.setHeader("Cache-Control", "no-store");
-      return res.send(rewritePlaylist(text, new URL(target)));
+      return res.send(rewritePlaylist(text, new URL(target), wid));
     }
 
     res.status(up.status);

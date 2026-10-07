@@ -10,7 +10,7 @@ import {
   type FavoriteItem,
   type HistoryItem,
 } from "@/lib/api";
-import { isSourceId, SOURCES } from "@/lib/sources";
+import { useSources } from "@/lib/sources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +18,8 @@ import { cn } from "@/lib/utils";
 
 export default function Detail() {
   const { source: sourceParam = "hongguo", id: rawId = "" } = useParams();
-  const source = SOURCES[isSourceId(sourceParam) ? sourceParam : "hongguo"];
+  const sources = useSources();
+  const source = sources.find((s) => s.id === sourceParam) ?? sources[0];
   const id = rawId;
   const navigate = useNavigate();
   const [detail, setDetail] = useState<DetailType | null>(null);

@@ -1,58 +1,77 @@
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-
-export type SourceId = "hongguo" | "huangguo";
+import { api } from "@/lib/api";
 
 export interface SourceConfig {
-  id: SourceId;
+  id: string;
   label: string;
   apiBase: string;
   /** 首页 tabs / 顶部分类导航 */
   categories: { id: string; label: string }[];
   /** 榜单 */
   ranks: { id: string; label: string }[];
-  /** 首页推荐 fallback 榜 */
+  /** 首页推荐 fallback 榜/分类 */
   hotRank: string;
+  /** 当前用户是否有权使用（false 时设置页灰显） */
+  allowed?: boolean;
+  /** 成人内容源 */
+  nsfw?: boolean;
 }
 
-export const SOURCES: Record<SourceId, SourceConfig> = {
-  hongguo: {
-    id: "hongguo",
-    label: "红果短剧",
-    apiBase: "/api/hongguo",
-    categories: [
-      { id: "short", label: "短剧" },
-      { id: "comic", label: "漫剧" },
-    ],
-    ranks: [
-      { id: "short-hot", label: "短剧热播" },
-      { id: "short-new", label: "短剧新剧" },
-      { id: "short-hot-search", label: "热搜榜" },
-      { id: "short-yearly", label: "年度榜" },
-      { id: "comic-hot", label: "漫剧热播" },
-      { id: "comic-new", label: "漫剧新剧" },
-    ],
-    hotRank: "short-hot",
-  },
-  huangguo: {
-    id: "huangguo",
-    label: "黄果短剧",
-    apiBase: "/api/huangguo",
-    categories: [
-      { id: "recommend", label: "推荐" },
-      { id: "newest", label: "最新" },
-      { id: "duanju", label: "AI短剧" },
-      { id: "manju", label: "AI漫剧" },
-      { id: "huanlian", label: "AI换脸" },
-      { id: "mogai", label: "AI魔改" },
-    ],
-    ranks: [
-      { id: "hot", label: "热播榜" },
-      { id: "recommend", label: "推荐榜" },
-      { id: "potential", label: "潜力榜" },
-    ],
-    hotRank: "hot",
-  },
+// 源列表由服务端下发（/api/me/sources）；这是加载完成前的惰性占位（不指向真实接口）
+const HONGGUO_FALLBACK: SourceConfig = {
+  id: "hongguo",
+  label: "加载中…",
+  apiBase: "/api/none",
+  categories: [],
+  ranks: [],
+  hotRank: "",
+  allowed: true,
 };
+
+let cache: SourceConfig[] | null = null;
+const listeners = new Set<() => void>();
+
+/** 管理端增删改来源后调用：清缓存并通知所有 useSources 重新拉取 */
+export function refreshSources() {
+  cache = null;
+  listeners.forEach((l) => l());
+}
+
+/** 当前用户可见的数据源列表（内置红果 + 已启用扩展源） */
+export function useSources(): SourceConfig[] {
+  const { user } = useAuth();
+  const [sources, setSources] = useState<SourceConfig[]>(cache ?? [HONGGUO_FALLBACK]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      api<{ sources: SourceConfig[] }>("/api/me/sources")
+        .then((d) => {
+          if (!Array.isArray(d.sources)) return;
+          cache = d.sources;
+          if (alive) setSources(d.sources);
+        })
+        .catch(() => {});
+    };
+    if (cache) setSources(cache);
+    else load();
+    listeners.add(load);
+    return () => {
+      alive = false;
+      listeners.delete(load);
+    };
+  }, [user?.id]);
+
+  return sources;
+}
+
+/** 当前用户选择的数据源配置 */
+export function useSource(): SourceConfig {
+  const { user } = useAuth();
+  const sources = useSources();
+  return sources.find((s) => s.id === user?.source) ?? sources[0] ?? HONGGUO_FALLBACK;
+}
 
 // ---- 「猜你喜欢」缓存：30 分钟 TTL，按源分 key；有新观看记录时清除 ----
 
@@ -81,16 +100,7 @@ export function writeRecommendCache(sourceId: string, items: unknown[]) {
 }
 
 export function invalidateRecommendCache() {
-  localStorage.removeItem(recKey("hongguo"));
-  localStorage.removeItem(recKey("huangguo"));
-}
-
-export function isSourceId(v: unknown): v is SourceId {
-  return v === "hongguo" || v === "huangguo";
-}
-
-/** 当前用户选择的数据源配置 */
-export function useSource(): SourceConfig {
-  const { user } = useAuth();
-  return SOURCES[isSourceId(user?.source) ? user.source : "hongguo"];
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith("hg-rec-")) localStorage.removeItem(key);
+  }
 }

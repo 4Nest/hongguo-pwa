@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError, type Detail as DetailType, type HistoryItem } from "@/lib/api";
-import { isSourceId, SOURCES } from "@/lib/sources";
+import { useSources } from "@/lib/sources";
 import VideoPlayer from "@/components/VideoPlayer";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils";
 
 export default function Player() {
   const { source: sourceParam = "hongguo", id = "", episodeNumber = "1" } = useParams();
-  const source = SOURCES[isSourceId(sourceParam) ? sourceParam : "hongguo"];
+  const sources = useSources();
+  const source = sources.find((s) => s.id === sourceParam) ?? sources[0];
   const epNum = Number(episodeNumber) || 1;
   const navigate = useNavigate();
   const [detail, setDetail] = useState<DetailType | null>(null);

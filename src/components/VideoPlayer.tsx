@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Maximize } from "lucide-react";
 import Hls from "hls.js";
 import { toast } from "sonner";
-import { invalidateRecommendCache, SOURCES } from "@/lib/sources";
+import { invalidateRecommendCache, useSources } from "@/lib/sources";
 import { api, type Detail, type Episode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -37,6 +37,8 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt, sourc
   // null=未知(默认 16:9)；加载元数据后按真实方向切换
   const [portrait, setPortrait] = useState<boolean | null>(null);
   const navigate = useNavigate();
+  const sources = useSources();
+  const sourceLabel = sources.find((s) => s.id === source)?.label ?? "短剧";
 
   const idx = episodes.findIndex((e) => e.episodeNumber === episode.episodeNumber);
   const next = idx >= 0 ? episodes[idx + 1] : undefined;
@@ -54,7 +56,7 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt, sourc
     if (!("mediaSession" in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `${detail.title} 第${episode.episodeNumber}集`,
-      artist: SOURCES[source as "hongguo" | "huangguo"]?.label ?? "短剧",
+      artist: sourceLabel,
       // 用原始海报地址：iOS 系统拉 artwork 不带本站登录 cookie
       artwork: detail.posterUrl ? [{ src: detail.posterUrl, sizes: "512x512" }] : [],
     });
@@ -64,7 +66,7 @@ export default function VideoPlayer({ detail, episode, episodes, resumeAt, sourc
       navigator.mediaSession.setActionHandler("previoustrack", null);
       navigator.mediaSession.setActionHandler("nexttrack", null);
     };
-  }, [detail, episode, prev, next, goEpisode, source]);
+  }, [detail, episode, prev, next, goEpisode, sourceLabel]);
 
   // 加载媒体：m3u8 走 HLS（Safari 原生 / 其他浏览器 hls.js），mp4 直接 src
   useEffect(() => {

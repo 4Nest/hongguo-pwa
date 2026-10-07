@@ -3,6 +3,7 @@ import { Copy, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { refreshSources } from "@/lib/sources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -163,6 +164,7 @@ function UsersTab() {
   const [expiresDays, setExpiresDays] = useState("");
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
   const [resetPassword, setResetPassword] = useState("");
+  const [accessTarget, setAccessTarget] = useState<AdminUser | null>(null);
 
   const load = useCallback(
     () =>
@@ -188,17 +190,8 @@ function UsersTab() {
     }
   };
 
-  const toggleHuangguo = async (u: AdminUser) => {
-    try {
-      await api(`/api/admin/users/${u.id}/huangguo`, {
-        method: "PUT",
-        body: { allowed: !u.huangguo_allowed },
-      });
-      toast.success(`${u.username} 黄果权限已${u.huangguo_allowed ? "关闭" : "开启"}`);
-      void load();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "操作失败");
-    }
+  const openAccess = (u: AdminUser) => {
+    setAccessTarget(u);
   };
 
   const addUser = async (e: React.FormEvent) => {
@@ -266,7 +259,7 @@ function UsersTab() {
             <TableHead>注册时间</TableHead>
             <TableHead>收藏数</TableHead>
             <TableHead>历史数</TableHead>
-            <TableHead>黄果权限</TableHead>
+            <TableHead>源权限</TableHead>
             <TableHead>有效期</TableHead>
             <TableHead className="w-20">操作</TableHead>
           </TableRow>
@@ -282,12 +275,8 @@ function UsersTab() {
               <TableCell>{u.favorite_count}</TableCell>
               <TableCell>{u.history_count}</TableCell>
               <TableCell>
-                <Button
-                  variant={u.huangguo_allowed ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => void toggleHuangguo(u)}
-                >
-                  {u.huangguo_allowed ? "允许" : "禁止"}
+                <Button variant="outline" size="sm" onClick={() => openAccess(u)}>
+                  管理
                 </Button>
               </TableCell>
               <TableCell>
@@ -445,98 +434,223 @@ function UsersTab() {
           </form>
         </DialogContent>
       </Dialog>
+      <SourceAccessDialog user={accessTarget} onClose={() => setAccessTarget(null)} />
     </>
   );
 }
 
-function SettingsTab() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [upstream, setUpstream] = useState("");
-  const [savedUpstream, setSavedUpstream] = useState("");
-  const [pending, setPending] = useState(false);
+/** 每用户 × 每源授权弹窗 */
+interface UserSourceAccess {
+  id: string;
+  label: string;
+  nsfw: boolean;
+  enabled: boolean;
+  allowed: boolean;
+}
+
+function SourceAccessDialog({ user, onClose }: { user: AdminUser | null; onClose: () => void }) {
+  const [rows, setRows] = useState<UserSourceAccess[]>([]);
+
+  const load = useCallback(() => {
+    if (!user) return;
+    api<{ sources: UserSourceAccess[] }>(`/api/admin/users/${user.id}/sources`)
+      .then((d) => setRows(d.sources))
+      .catch(() => {});
+  }, [user]);
 
   useEffect(() => {
-    api<{ huangguoEnabled: boolean; upstreamUrl: string }>("/api/admin/settings")
-      .then((d) => {
-        setEnabled(d.huangguoEnabled);
-        setUpstream(d.upstreamUrl);
-        setSavedUpstream(d.upstreamUrl);
-      })
-      .catch(() => {});
-  }, []);
+    setRows([]);
+    load();
+  }, [load]);
 
-  const toggle = async () => {
-    if (enabled === null || pending) return;
-    setPending(true);
+  const toggle = async (s: UserSourceAccess) => {
+    if (!user) return;
     try {
-      const d = await api<{ huangguoEnabled: boolean }>("/api/admin/settings", {
+      await api(`/api/admin/users/${user.id}/sources/${s.id}`, {
         method: "PUT",
-        body: { huangguoEnabled: !enabled },
+        body: { allowed: !s.allowed },
       });
-      setEnabled(d.huangguoEnabled);
-      toast.success(d.huangguoEnabled ? "黄果源已开启" : "黄果源已关闭");
+      setRows((rs) => rs.map((r) => (r.id === s.id ? { ...r, allowed: !r.allowed } : r)));
+      refreshSources();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "操作失败");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const saveUpstream = async () => {
-    const url = upstream.trim();
-    if (!url || url === savedUpstream || pending) return;
-    setPending(true);
-    try {
-      const d = await api<{ upstreamUrl: string }>("/api/admin/settings", {
-        method: "PUT",
-        body: { upstreamUrl: url },
-      });
-      setUpstream(d.upstreamUrl);
-      setSavedUpstream(d.upstreamUrl);
-      toast.success("上游地址已保存，即时生效");
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "保存失败");
-    } finally {
-      setPending(false);
     }
   };
 
   return (
-    <div className="flex max-w-lg flex-col gap-4">
+    <Dialog open={user !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>源权限 · {user?.username}</DialogTitle>
+          <DialogDescription>
+            控制该用户可使用哪些来源；未单独设置时，非成人源默认开放
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2">
+          {rows.length === 0 && <p className="text-sm text-muted-foreground">暂无来源</p>}
+          {rows.map((s) => (
+            <div key={s.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+              <div>
+                <p className="font-medium">
+                  {s.label}
+                  {s.nsfw && <span className="ml-1 text-xs text-red-500">成人</span>}
+                  {!s.enabled && <span className="ml-1 text-xs text-muted-foreground">（已停用）</span>}
+                </p>
+              </div>
+              <Button
+                variant={s.allowed ? "default" : "outline"}
+                size="sm"
+                onClick={() => void toggle(s)}
+              >
+                {s.allowed ? "允许" : "禁止"}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface WidgetSourceRow {
+  id: string;
+  url: string;
+  label: string;
+  enabled: number;
+  nsfw: number;
+  created_at: number;
+}
+
+function SettingsTab() {
+  const [sources, setSources] = useState<WidgetSourceRow[]>([]);
+  const [newUrl, setNewUrl] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const loadSources = useCallback(
+    () =>
+      api<{ sources: WidgetSourceRow[] }>("/api/admin/sources")
+        .then((d) => setSources(d.sources))
+        .catch(() => {}),
+    [],
+  );
+
+  useEffect(() => {
+    void loadSources();
+  }, [loadSources]);
+
+  const addSource = async () => {
+    const url = newUrl.trim();
+    if (!url || adding) return;
+    setAdding(true);
+    try {
+      await api("/api/admin/sources", { method: "POST", body: { url } });
+      setNewUrl("");
+      await loadSources();
+      refreshSources();
+      toast.success("来源已添加");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "添加失败");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const toggleSource = async (s: WidgetSourceRow) => {
+    try {
+      await api(`/api/admin/sources/${s.id}`, {
+        method: "PUT",
+        body: { enabled: !s.enabled },
+      });
+      await loadSources();
+      refreshSources();
+      toast.success(`${s.label} 已${s.enabled ? "关闭" : "开启"}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "操作失败");
+    }
+  };
+
+  const toggleNsfw = async (s: WidgetSourceRow) => {
+    try {
+      await api(`/api/admin/sources/${s.id}`, {
+        method: "PUT",
+        body: { nsfw: !s.nsfw },
+      });
+      await loadSources();
+      refreshSources();
+      toast.success(`${s.label} 已标记为${s.nsfw ? "开放" : "成人"}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "操作失败");
+    }
+  };
+
+  const removeSource = async (s: WidgetSourceRow) => {
+    if (!window.confirm(`确定删除来源「${s.label}」？用户的收藏/历史记录会保留但无法再通过该源播放。`))
+      return;
+    try {
+      await api(`/api/admin/sources/${s.id}`, { method: "DELETE" });
+      await loadSources();
+      refreshSources();
+      toast.success(`${s.label} 已删除`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "删除失败");
+    }
+  };
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-4">
       <div className="rounded-md border p-4">
-        <p className="font-medium">上游地址（Capy Backend）</p>
+        <p className="font-medium">来源</p>
         <p className="mb-3 text-sm text-muted-foreground">
-          红果与黄果的数据都来自该地址，修改后即时生效
+          粘贴 Capy 页面的组件链接（…/widgets/xxx.js）即可添加；「成人」源需在用户列表单独授权，开放源所有用户可用
         </p>
-        <div className="flex gap-2">
+        <div className="mb-3 flex gap-2">
           <Input
-            value={upstream}
-            onChange={(e) => setUpstream(e.target.value)}
-            placeholder="http://192.168.2.110:8788"
+            value={newUrl}
+            onChange={(e) => setNewUrl(e.target.value)}
+            placeholder="http://192.168.2.110:8788/widgets/xxx.js"
             className="font-mono text-sm"
+            onKeyDown={(e) => e.key === "Enter" && void addSource()}
           />
-          <Button
-            onClick={() => void saveUpstream()}
-            disabled={pending || !upstream.trim() || upstream.trim() === savedUpstream}
-          >
-            保存
+          <Button onClick={() => void addSource()} disabled={adding || !newUrl.trim()}>
+            {adding ? "添加中…" : "添加"}
           </Button>
         </div>
-      </div>
-      <div className="flex items-center justify-between rounded-md border p-4">
-        <div>
-          <p className="font-medium">黄果源</p>
-          <p className="text-sm text-muted-foreground">
-            开启后，用户可在「设置」页切换到黄果短剧（成人内容，请自行评估合规风险）
-          </p>
+        <div className="flex flex-col gap-2">
+          {sources.length === 0 && (
+            <p className="py-2 text-sm text-muted-foreground">暂无来源</p>
+          )}
+          {sources.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium">{s.label}</p>
+                <p className="truncate font-mono text-xs text-muted-foreground">{s.url}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant={s.nsfw ? "destructive" : "outline"}
+                  size="sm"
+                  title="成人源需在用户列表单独授权"
+                  onClick={() => void toggleNsfw(s)}
+                >
+                  {s.nsfw ? "成人" : "开放"}
+                </Button>
+                <Button
+                  variant={s.enabled ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => void toggleSource(s)}
+                >
+                  {s.enabled ? "已开启" : "已关闭"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => void removeSource(s)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
-        <Button
-          variant={enabled ? "default" : "outline"}
-          disabled={enabled === null || pending}
-          onClick={() => void toggle()}
-        >
-          {enabled ? "已开启" : "已关闭"}
-        </Button>
       </div>
     </div>
   );

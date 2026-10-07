@@ -1,6 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, huangguoEnabled, userHuangguoAllowed } from "../db.ts";
+import { db, huangguoEnabled, userNsfwAllowed } from "../db.ts";
+import { fallbackSourceId, sourceStillValid } from "../sources.ts";
 import { signToken, clearToken, requireAuth, type AuthedRequest } from "../auth.ts";
 
 export const authRouter = Router();
@@ -70,11 +71,11 @@ authRouter.get("/me", requireAuth, (req: AuthedRequest, res) => {
     clearToken(req, res);
     return res.status(401).json({ error: "账号已过期" });
   }
-  // 黄果被关闭或该用户被单独禁用时，已切到黄果的用户回退红果
-  const allowed = userHuangguoAllowed(user.id);
-  if (user.source === "huangguo" && !allowed) {
-    db.prepare("UPDATE users SET source = 'hongguo' WHERE id = ?").run(user.id);
-    user.source = "hongguo";
+  // 当前源被禁用/删除或无权限时，回落到第一个可用源
+  const allowed = userNsfwAllowed(user.id);
+  if (!sourceStillValid(user.id, user.source)) {
+    user.source = fallbackSourceId(user.id);
+    db.prepare("UPDATE users SET source = ? WHERE id = ?").run(user.source, user.id);
   }
   res.json({ ...user, huangguoEnabled: huangguoEnabled(), huangguoAllowed: allowed });
 });
